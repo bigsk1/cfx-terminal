@@ -65,7 +65,7 @@ To configure Cloudflare integration:
 
    # OpenAI API
    OPENAI_API_KEY=your_openai_api_key
-   OPENAI_TEXT_MODEL=gpt-4-turbo
+   OPENAI_TEXT_MODEL=gpt-4o
    OPENAI_IMAGE_MODEL=dall-e-3
 
    # XAI API
@@ -123,6 +123,8 @@ You can configure different AI models by changing the environment variables:
    ```
 
 4. Access the application at http://localhost:3000
+
+![ImageG](frontend/public/images/image-gen.png)
 
 ### Quick Start
 

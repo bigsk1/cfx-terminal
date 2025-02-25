@@ -435,12 +435,23 @@ async def post_tweet(request: PostTweetRequest):
         if media_id:
             payload["media"] = {"media_ids": [media_id]}
             
-        # Post the tweet
+        # Post the tweet and get rate limit to were how many remaining
         response = requests.post(
             "https://api.twitter.com/2/tweets",
             auth=auth,
             json=payload
         )
+        try:
+            response.raise_for_status()
+        except requests.exceptions.HTTPError as e:
+            if response.status_code == 429:
+                print(f"Rate Limit Headers:")
+                print(f"Total Limit: {response.headers.get('x-rate-limit-limit')}")
+                print(f"Remaining: {response.headers.get('x-rate-limit-remaining')}")
+                reset_time = response.headers.get('x-rate-limit-reset')
+                if reset_time:
+                    print(f"Reset Time (UTC): {strftime('%Y-%m-%d %H:%M:%S', gmtime(int(reset_time)))}")
+            raise HTTPException(status_code=500, detail=f"Error posting tweet: {str(e)}")
         response.raise_for_status()
         
         # Get the tweet ID
