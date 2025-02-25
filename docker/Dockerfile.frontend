@@ -1,0 +1,27 @@
+FROM node:18-alpine
+
+WORKDIR /app
+
+# Install curl for network testing
+RUN apk add --no-cache curl
+
+# Copy package.json and package-lock.json
+COPY frontend/package*.json ./
+
+# Install dependencies
+RUN npm install
+
+# Copy frontend code
+COPY frontend/ ./
+
+# Copy Docker-specific Next.js config
+COPY docker/next.config.docker.js ./next.config.js
+
+# Build the Next.js application
+RUN npm run build
+
+# Expose the port the app runs on
+EXPOSE 3000
+
+# Command to run the application
+CMD ["npm", "run", "start"] 
