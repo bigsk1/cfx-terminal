@@ -11,7 +11,7 @@ to your cloudflare images gallery.
 - **Advanced Twitter Preview**: Real-time rendering of how tweets will appear with character count
 - **Thread Management**: Smart thread creation for longer content
 - **Direct Posting**: Post directly to Twitter with one click
-- **Configurable AI Models**: Support for different OpenAI models including Grok
+- **Configurable AI Models**: Support for different OpenAI models - Can use xAI and Grok
 - **Cloudflare Image Gallery**: Store and reuse generated images with Cloudflare Images integration
 - **Tweet Management**: View and delete your posted tweets
 
@@ -21,7 +21,7 @@ to your cloudflare images gallery.
 
 - **Frontend**: Next.js with Chakra UI for a cyberpunk aesthetic
 - **Backend**: Python FastAPI for high-performance API endpoints
-- **AI Integration**: OpenAI GPT-4 for text generation and DALL-E 3 for image creation
+- **AI Integration**: OpenAI or xAI for text generation and DALL-E 3 for image creation
 - **Twitter API**: For posting tweets, threads, and images
 - **Cloudflare Images**: Optional integration for image hosting
 
@@ -70,7 +70,7 @@ To configure Cloudflare integration:
 
    # XAI API
    XAI_API_KEY=your_xai_api_key
-   XAI_MODEL=gpt-4o-mini
+   XAI_MODEL=grok-2-1212
 
    # Cloudflare (optional)
    CLOUDFLARE_ACCOUNT_ID=your_cloudflare_account_id
@@ -82,8 +82,7 @@ To configure Cloudflare integration:
 You can configure different AI models by changing the environment variables:
 
 - **Text Generation Models**:
-  - `gpt-4o`: Latest GPT-4 model (default)
-  - `gpt-4-1106-preview`: GPT-4 Turbo preview
+  - `gpt-4o`: Latest GPT-4 model (default) or use mini
   - `grok-2-1212`: Grok 2 model (if you have access)
 
 - **Image Generation Models**:
@@ -171,8 +170,8 @@ You can customize the Docker configuration by editing the files in the `docker` 
 1. **Craft a Tweet**: Enter your tweet idea in the chat interface and let AI generate optimized content
 2. **Generate Images**: Describe the image you want and let DALL-E 3 create it
 3. **Preview & Edit**: Review how your tweet will appear and make any necessary edits
-4. **Post to Twitter**: Send your creation directly to Twitter with one click
-
+4. **Post to Twitter**: Send your creation directly to X with one click
+5. **Toggle on Chat**: Just chat with the model, you can also just generate images with Dalle-3
 ## License
 
 MIT 
