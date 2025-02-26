@@ -885,13 +885,18 @@ def upload_to_cloudflare_helper(file_data, filename="image", expiration="24h"):
 
 @app.get("/api/twitter/home-timeline")
 async def get_home_timeline(count: int = 20, cursor: str = None):
-    """Get the user's Twitter home timeline"""
-    global twitter_cache, twitter_rate_limits
+    """
+    Get the home timeline for the authenticated user using the correct Twitter API v2 endpoint:
+    /2/users/{id}/timelines/reverse_chronological
+    """
+    # Check if Twitter credentials are available
+    twitter_credentials = {
+        "consumer_key": os.environ.get("X_CONSUMER_KEY"),
+        "consumer_secret": os.environ.get("X_CONSUMER_SECRET"),
+        "access_token": os.environ.get("X_ACCESS_TOKEN"),
+        "access_token_secret": os.environ.get("X_ACCESS_TOKEN_SECRET")
+    }
     
-    logger.info(f"Fetching Twitter home timeline")
-    logger.info(f"Parameters: count={count}, cursor={cursor}")
-    
-    # Check if Twitter API credentials are configured
     if not all([
         twitter_credentials["consumer_key"],
         twitter_credentials["consumer_secret"],
@@ -908,26 +913,26 @@ async def get_home_timeline(count: int = 20, cursor: str = None):
     rate_limit_info = twitter_rate_limits["home_timeline"]
     current_time = time.time()
     
-    # If we have rate limit info and we're still limited
-    if (rate_limit_info["reset_time"] and 
-        current_time < rate_limit_info["reset_time"] and 
-        rate_limit_info["remaining"] <= 0):
+    if (rate_limit_info["remaining"] == 0 and 
+        rate_limit_info["reset_time"] and 
+        current_time < rate_limit_info["reset_time"]):
         
         # Calculate time until reset
-        seconds_until_reset = int(rate_limit_info["reset_time"] - current_time)
-        minutes_until_reset = max(1, int(seconds_until_reset / 60))
+        reset_time = format_time_until(rate_limit_info["reset_time"])
+        logger.warning(f"Twitter API rate limit exceeded. Reset in {reset_time}")
         
-        logger.info(f"Rate limited. Reset in {minutes_until_reset} minutes. Using cached data if available.")
+        # Check if we have cached data
+        cache_data = twitter_cache["home_timeline"]
         
         # If we have cached data, return it with a warning
-        if twitter_cache["home_timeline"]["data"]:
-            cached_data = twitter_cache["home_timeline"]["data"]
+        if cache_data["data"]:
+            cached_data = cache_data["data"]
             # Add a warning to the response
             if "meta" not in cached_data:
                 cached_data["meta"] = {}
-            cached_data["meta"]["warning"] = f"Rate limit exceeded. Reset in {minutes_until_reset} minutes. Showing cached data."
+            cached_data["meta"]["warning"] = f"Rate limit exceeded. Reset in {reset_time}. Showing cached data."
             cached_data["meta"]["cached"] = True
-            cached_data["meta"]["cache_time"] = twitter_cache["home_timeline"]["last_updated"]
+            cached_data["meta"]["cache_time"] = cache_data["last_updated"]
             
             # Add rate limit info to the response
             cached_data["meta"]["rate_limit"] = {
@@ -939,13 +944,12 @@ async def get_home_timeline(count: int = 20, cursor: str = None):
             return cached_data
         
         # No cached data available
-        raise HTTPException(
-            status_code=429,
-            detail=f"Twitter API rate limit exceeded. Please try again in {minutes_until_reset} minutes."
-        )
+        error_message = f"Twitter API rate limit exceeded. Please try again in {reset_time}."
+        raise HTTPException(status_code=429, detail=error_message)
     
-    # Check if we have valid cached data and no cursor (only use cache for first page)
+    # Check if we have cached data that's still valid
     cache_data = twitter_cache["home_timeline"]
+    
     if (not cursor and 
         cache_data["data"] and 
         cache_data["expires_at"] and 
@@ -968,154 +972,149 @@ async def get_home_timeline(count: int = 20, cursor: str = None):
         
         return cached_data
     
-    # Initialize Twitter client with OAuth 2.0
-    client = tweepy.Client(
-        consumer_key=twitter_credentials["consumer_key"],
-        consumer_secret=twitter_credentials["consumer_secret"],
-        access_token=twitter_credentials["access_token"],
-        access_token_secret=twitter_credentials["access_token_secret"],
-        wait_on_rate_limit=False  # Don't wait on rate limit
-    )
-    
-    # Prepare parameters for the request - FIXED: Use underscores instead of dots for Tweepy
-    params = {
-        "max_results": count,
-        "tweet_fields": "created_at,public_metrics,entities,referenced_tweets,attachments",
-        "user_fields": "profile_image_url,verified",
-        "media_fields": "url,preview_image_url,type,duration_ms,height,width,alt_text,variants",
-        "expansions": "author_id,referenced_tweets.id,referenced_tweets.id.author_id,attachments.media_keys"
-    }
-    
-    if cursor:
-        params["pagination_token"] = cursor
-    
-    logger.info(f"Making Twitter API request with params: {params}")
-    
     try:
-        # Make the request to Twitter API
-        response = client.get_home_timeline(**params)
+        # Initialize OAuth1 for API requests
+        auth = OAuth1(
+            twitter_credentials["consumer_key"],
+            twitter_credentials["consumer_secret"],
+            twitter_credentials["access_token"],
+            twitter_credentials["access_token_secret"]
+        )
+        
+        # First, get the authenticated user's ID
+        user_response = requests.get(
+            "https://api.twitter.com/2/users/me",
+            auth=auth
+        )
+        user_response.raise_for_status()
+        user_data = user_response.json()
+        
+        if "data" not in user_data or "id" not in user_data["data"]:
+            raise Exception("Failed to get authenticated user ID")
+        
+        user_id = user_data["data"]["id"]
+        logger.info(f"Authenticated as user ID: {user_id}")
+        
+        # Prepare parameters for the request to the correct endpoint
+        params = {
+            "max_results": count,
+            "tweet.fields": "created_at,public_metrics,entities,referenced_tweets,attachments,edit_history_tweet_ids",
+            "user.fields": "profile_image_url,verified",
+            "media.fields": "url,preview_image_url,type,duration_ms,height,width,alt_text,variants",
+            "expansions": "author_id,referenced_tweets.id,referenced_tweets.id.author_id,attachments.media_keys"
+        }
+        
+        if cursor:
+            params["pagination_token"] = cursor
+        
+        # Make the request to the correct Twitter API endpoint
+        timeline_url = f"https://api.twitter.com/2/users/{user_id}/timelines/reverse_chronological"
+        logger.info(f"Making Twitter API request to {timeline_url} with params: {params}")
+        
+        timeline_response = requests.get(
+            timeline_url,
+            auth=auth,
+            params=params
+        )
+        timeline_response.raise_for_status()
         
         # Process the response
-        tweets_data = []
-        users_data = []
-        media_data = []
-        referenced_tweets_data = []
-        
-        if response.data:
-            tweets_data = response.data
-        
-        if response.includes:
-            if "users" in response.includes:
-                users_data = response.includes["users"]
-            if "media" in response.includes:
-                media_data = response.includes["media"]
-            if "tweets" in response.includes:
-                referenced_tweets_data = response.includes["tweets"]
-        
-        # Construct the response dictionary
-        response_dict = {
-            "data": tweets_data,
-            "includes": {
-                "users": users_data,
-                "media": media_data,
-                "tweets": referenced_tweets_data
-            },
-            "meta": response.meta
-        }
+        response_data = timeline_response.json()
         
         # Update cache if this is the first page (no cursor)
         if not cursor:
             twitter_cache["home_timeline"] = {
-                "data": response_dict,
+                "data": response_data,
                 "last_updated": int(current_time),
                 "expires_at": int(current_time) + TIMELINE_CACHE_EXPIRY
             }
         
-        # Update rate limit information from headers if available
-        if hasattr(response, "_headers") and response._headers:
-            headers = response._headers
+        # Update rate limit information from headers
+        headers = timeline_response.headers
+        if "x-rate-limit-limit" in headers:
+            twitter_rate_limits["home_timeline"]["limit"] = int(headers["x-rate-limit-limit"])
+        if "x-rate-limit-remaining" in headers:
+            twitter_rate_limits["home_timeline"]["remaining"] = int(headers["x-rate-limit-remaining"])
+        if "x-rate-limit-reset" in headers:
+            twitter_rate_limits["home_timeline"]["reset_time"] = int(headers["x-rate-limit-reset"])
+        twitter_rate_limits["home_timeline"]["last_checked"] = int(current_time)
+        
+        logger.info(f"Updated rate limits: {twitter_rate_limits['home_timeline']}")
+        
+        # Add rate limit info to the response
+        if "meta" not in response_data:
+            response_data["meta"] = {}
+        response_data["meta"]["rate_limit"] = {
+            "limit": twitter_rate_limits["home_timeline"]["limit"],
+            "remaining": twitter_rate_limits["home_timeline"]["remaining"],
+            "reset_time": twitter_rate_limits["home_timeline"]["reset_time"]
+        }
+        
+        return response_data
+        
+    except requests.exceptions.HTTPError as e:
+        # Handle HTTP errors
+        logger.error(f"HTTP error fetching Twitter timeline: {str(e)}")
+        
+        # Check if it's a rate limit error (429)
+        if e.response.status_code == 429:
+            # Extract rate limit headers
+            headers = e.response.headers
             if "x-rate-limit-limit" in headers:
                 twitter_rate_limits["home_timeline"]["limit"] = int(headers["x-rate-limit-limit"])
             if "x-rate-limit-remaining" in headers:
-                twitter_rate_limits["home_timeline"]["remaining"] = int(headers["x-rate-limit-remaining"])
+                twitter_rate_limits["home_timeline"]["remaining"] = 0
             if "x-rate-limit-reset" in headers:
                 twitter_rate_limits["home_timeline"]["reset_time"] = int(headers["x-rate-limit-reset"])
-            twitter_rate_limits["home_timeline"]["last_checked"] = int(current_time)
             
-            logger.info(f"Updated rate limits: {twitter_rate_limits['home_timeline']}")
+            # Calculate time until reset
+            reset_time = None
+            if twitter_rate_limits["home_timeline"]["reset_time"]:
+                reset_time = format_time_until(twitter_rate_limits["home_timeline"]["reset_time"])
             
-            # Add rate limit info to the response
-            if "meta" not in response_dict:
-                response_dict["meta"] = {}
-            response_dict["meta"]["rate_limit"] = {
-                "limit": twitter_rate_limits["home_timeline"]["limit"],
-                "remaining": twitter_rate_limits["home_timeline"]["remaining"],
-                "reset_time": twitter_rate_limits["home_timeline"]["reset_time"]
-            }
-        
-        return response_dict
-        
-    except tweepy.TooManyRequests as e:
-        # Handle rate limit exceeded
-        # Try to extract rate limit information from the response
-        rate_limit_info = {}
-        reset_time = None
-        
-        # Check if we can access the response object
-        if hasattr(e, 'response') and e.response is not None:
-            # Extract rate limit headers
-            headers = e.response.headers
-            rate_limit_info['limit'] = headers.get('x-rate-limit-limit')
-            rate_limit_info['remaining'] = headers.get('x-rate-limit-remaining', '0')
-            rate_limit_info['reset'] = headers.get('x-rate-limit-reset')
+            # If we have cached data, return it with a warning
+            if twitter_cache["home_timeline"]["data"]:
+                cached_data = twitter_cache["home_timeline"]["data"]
+                # Add a warning to the response
+                if "meta" not in cached_data:
+                    cached_data["meta"] = {}
+                cached_data["meta"]["warning"] = f"Rate limit exceeded. Reset in {reset_time if reset_time else 'unknown time'}. Showing cached data."
+                cached_data["meta"]["cached"] = True
+                cached_data["meta"]["cache_time"] = twitter_cache["home_timeline"]["last_updated"]
+                
+                # Add rate limit info to the response
+                cached_data["meta"]["rate_limit"] = {
+                    "limit": twitter_rate_limits["home_timeline"]["limit"],
+                    "remaining": 0,
+                    "reset_time": twitter_rate_limits["home_timeline"]["reset_time"]
+                }
+                
+                return cached_data
             
-            # Convert reset time to minutes if available
-            if rate_limit_info['reset']:
-                try:
-                    reset_timestamp = int(rate_limit_info['reset'])
-                    current_timestamp = int(time.time())
-                    reset_minutes = max(1, int((reset_timestamp - current_timestamp) / 60))
-                    reset_time = f"{reset_minutes} minute{'s' if reset_minutes != 1 else ''}"
-                    
-                    # Update our rate limit tracking
-                    twitter_rate_limits["home_timeline"]["limit"] = int(rate_limit_info['limit']) if rate_limit_info['limit'] else 15
-                    twitter_rate_limits["home_timeline"]["remaining"] = 0
-                    twitter_rate_limits["home_timeline"]["reset_time"] = reset_timestamp
-                    twitter_rate_limits["home_timeline"]["last_checked"] = current_timestamp
-                    
-                except (ValueError, TypeError):
-                    reset_time = None
+            # No cached data available
+            error_message = f"Twitter API rate limit exceeded. Please try again in {reset_time if reset_time else '15 minutes'}."
+            raise HTTPException(status_code=429, detail=error_message)
         
-        # Log the rate limit information
-        logger.warning(f"Twitter API rate limit exceeded. Rate limit info: {rate_limit_info}")
+        # Handle unauthorized access (401)
+        elif e.response.status_code == 401:
+            logger.error(f"Twitter API unauthorized: {str(e)}")
+            raise HTTPException(status_code=401, detail="Twitter API unauthorized. Please check your credentials.")
         
-        # If we have cached data, return it with a warning
-        if twitter_cache["home_timeline"]["data"]:
-            cached_data = twitter_cache["home_timeline"]["data"]
-            # Add a warning to the response
-            if "meta" not in cached_data:
-                cached_data["meta"] = {}
-            cached_data["meta"]["warning"] = f"Rate limit exceeded. Reset in {reset_time if reset_time else 'unknown time'}. Showing cached data."
-            cached_data["meta"]["cached"] = True
-            cached_data["meta"]["cache_time"] = twitter_cache["home_timeline"]["last_updated"]
+        # Handle other HTTP errors
+        else:
+            # If we have cached data, return it with a warning
+            if twitter_cache["home_timeline"]["data"]:
+                cached_data = twitter_cache["home_timeline"]["data"]
+                # Add a warning to the response
+                if "meta" not in cached_data:
+                    cached_data["meta"] = {}
+                cached_data["meta"]["warning"] = f"Error fetching timeline: {str(e)}. Showing cached data."
+                cached_data["meta"]["cached"] = True
+                cached_data["meta"]["cache_time"] = twitter_cache["home_timeline"]["last_updated"]
+                
+                return cached_data
             
-            # Add rate limit info to the response
-            cached_data["meta"]["rate_limit"] = {
-                "limit": int(rate_limit_info['limit']) if rate_limit_info['limit'] else 15,
-                "remaining": 0,
-                "reset_time": int(rate_limit_info['reset']) if rate_limit_info['reset'] else None
-            }
-            
-            return cached_data
-        
-        # No cached data available
-        error_message = f"Twitter API rate limit exceeded. Please try again in {reset_time if reset_time else '15 minutes'}."
-        raise HTTPException(status_code=429, detail=error_message)
-        
-    except tweepy.Unauthorized as e:
-        # Handle unauthorized access
-        logger.error(f"Twitter API unauthorized: {str(e)}")
-        raise HTTPException(status_code=401, detail="Twitter API unauthorized. Please check your credentials.")
+            raise HTTPException(status_code=e.response.status_code, detail=f"Twitter API error: {str(e)}")
         
     except Exception as e:
         # Handle other exceptions
@@ -1227,35 +1226,30 @@ async def post_tweet(
 @app.post("/api/twitter/reply")
 async def reply_to_tweet(request: Request):
     """
-    Reply to a tweet.
+    Reply to a tweet
     """
     try:
-        # Parse request body
+        # Parse the request body
         body = await request.json()
-        tweet_id = str(body.get("tweet_id", ""))
-        text = body.get("text", "")
+        tweet_id = body.get("tweet_id")
+        text = body.get("text")
         image_url = body.get("image_url")
         
-        # Log the incoming request
-        logger.info(f"Reply request: id={tweet_id}, text_preview={text[:20]}...")
-        
+        # Check for required parameters
         if not tweet_id or not text:
-            raise HTTPException(
-                status_code=400,
-                detail="Missing required parameters: tweet_id and text"
-            )
+            raise HTTPException(status_code=400, detail="Missing required parameters: tweet_id and text")
         
-        # Check if Twitter credentials are available
+        # Log the incoming request
+        logger.info(f"Reply to tweet request: id={tweet_id}, text={text[:30]}...")
+        
+        # Check for Twitter API credentials
         twitter_api_key = os.environ.get("X_CONSUMER_KEY")
         twitter_api_secret = os.environ.get("X_CONSUMER_SECRET")
         twitter_access_token = os.environ.get("X_ACCESS_TOKEN")
         twitter_access_secret = os.environ.get("X_ACCESS_TOKEN_SECRET")
         
         if not all([twitter_api_key, twitter_api_secret, twitter_access_token, twitter_access_secret]):
-            raise HTTPException(
-                status_code=400,
-                detail="Twitter API credentials not configured"
-            )
+            raise HTTPException(status_code=400, detail="Twitter API credentials not configured")
         
         # Initialize Twitter client
         client = tweepy.Client(
@@ -1265,81 +1259,103 @@ async def reply_to_tweet(request: Request):
             access_token_secret=twitter_access_secret
         )
         
-        # Ensure tweet_id is a string
-        tweet_id = find_correct_tweet_id(tweet_id)
+        # Get the correct tweet ID (checking edit history if needed)
+        tweet_id = find_correct_tweet_id(tweet_id, client)
         
-        # Handle image if provided
+        # Handle image upload if provided
         media_id = None
         if image_url:
-            # Initialize Twitter API v1.1 for media upload
-            auth = tweepy.OAuth1UserHandler(
-                twitter_api_key,
-                twitter_api_secret,
-                twitter_access_token,
-                twitter_access_secret
-            )
-            api = tweepy.API(auth)
-            
-            # Download the image
-            response = requests.get(image_url)
-            if response.status_code != 200:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Failed to download image"
+            try:
+                # Download the image
+                image_response = requests.get(image_url)
+                if image_response.status_code != 200:
+                    raise Exception(f"Failed to download image: {image_response.status_code}")
+                
+                # Save the image temporarily
+                temp_image_path = f"temp_images/reply_{uuid.uuid4()}.jpg"
+                with open(temp_image_path, "wb") as f:
+                    f.write(image_response.content)
+                
+                # Initialize Twitter API v1.1 for media upload
+                auth = tweepy.OAuth1UserHandler(
+                    twitter_api_key,
+                    twitter_api_secret,
+                    twitter_access_token,
+                    twitter_access_secret
                 )
-            
-            # Save the image temporarily
-            temp_file = f"temp_images/reply_image_{uuid.uuid4()}.jpg"
-            with open(temp_file, "wb") as f:
-                f.write(response.content)
-            
-            # Upload the image to Twitter
-            media = api.media_upload(temp_file)
-            media_id = media.media_id
-            
-            # Remove the temporary file
-            os.remove(temp_file)
+                api = tweepy.API(auth)
+                
+                # Upload the image
+                media = api.media_upload(temp_image_path)
+                media_id = media.media_id
+                
+                # Clean up the temporary file
+                os.remove(temp_image_path)
+                
+            except Exception as e:
+                logger.error(f"Error uploading image: {str(e)}")
+                # Continue without the image if there's an error
         
         # Reply to the tweet
-        response = client.create_tweet(
-            text=text,
-            in_reply_to_tweet_id=tweet_id,
-            media_ids=[media_id] if media_id else None
-        )
+        if media_id:
+            response = client.create_tweet(
+                text=text,
+                in_reply_to_tweet_id=tweet_id,
+                media_ids=[media_id]
+            )
+        else:
+            response = client.create_tweet(
+                text=text,
+                in_reply_to_tweet_id=tweet_id
+            )
         
-        # Return the new tweet ID
-        return {
-            "status": "replied",
-            "tweet_id": response.data["id"],
-            "in_reply_to": tweet_id
-        }
+        return {"status": "success", "message": "Reply sent successfully", "data": response}
         
     except tweepy.TweepyException as e:
         logger.error(f"Twitter API error: {str(e)}")
-        raise HTTPException(
-            status_code=400,
-            detail=f"Twitter API error: {str(e)}"
-        )
+        raise HTTPException(status_code=400, detail=f"Twitter API error: {str(e)}")
+        
     except Exception as e:
         logger.error(f"Error replying to tweet: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error replying to tweet: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Error replying to tweet: {str(e)}")
 
-def find_correct_tweet_id(tweet_id: str) -> str:
+def find_correct_tweet_id(tweet_id: str, client=None) -> str:
     """
-    Ensure the tweet ID is a string.
+    Ensure the tweet ID is a string and check for edit history if available.
     
     Args:
         tweet_id: The tweet ID to check
+        client: Optional tweepy client to use for checking edit history
         
     Returns:
-        The tweet ID as a string
+        The tweet ID as a string, possibly updated with the correct edit history ID
     """
     # Ensure the tweet ID is a string
     tweet_id = str(tweet_id)
-    logger.info(f"Using tweet ID: {tweet_id}")
+    logger.info(f"Original tweet ID: {tweet_id}")
+    
+    # If we have a client, try to check for edit history
+    if client:
+        try:
+            # Get the tweet to check for edit_history_tweet_ids
+            tweet_data = client.get_tweet(
+                tweet_id, 
+                tweet_fields=["edit_history_tweet_ids"]
+            )
+            
+            # If we have edit history and the current ID isn't the first one, use the first one
+            if (tweet_data and 
+                hasattr(tweet_data.data, 'edit_history_tweet_ids') and 
+                tweet_data.data.edit_history_tweet_ids and
+                tweet_data.data.edit_history_tweet_ids[0] != tweet_id):
+                
+                correct_id = tweet_data.data.edit_history_tweet_ids[0]
+                logger.info(f"Using edit history ID: {correct_id}")
+                return correct_id
+        except Exception as e:
+            # Log the error but continue with the original ID
+            logger.warning(f"Error checking edit history for tweet {tweet_id}: {str(e)}")
+    
     return tweet_id
 
 @app.post("/api/twitter/tweet-action")
@@ -1376,69 +1392,53 @@ async def tweet_action(request: Request):
             access_token_secret=twitter_access_secret
         )
         
-        # Ensure tweet_id is a string
-        tweet_id = find_correct_tweet_id(tweet_id)
+        # Get the correct tweet ID (checking edit history if needed)
+        tweet_id = find_correct_tweet_id(tweet_id, client)
         
-        # Define a function to perform the action with error handling and retries
-        def perform_action(id_to_use):
-            try:
-                if action == "like":
-                    response = client.like(id_to_use)
-                    return {"status": "success", "message": "Tweet liked successfully", "data": response}
-                elif action == "unlike":
-                    response = client.unlike(id_to_use)
-                    return {"status": "success", "message": "Tweet unliked successfully", "data": response}
-                elif action == "retweet":
-                    response = client.retweet(id_to_use)
-                    return {"status": "success", "message": "Tweet retweeted successfully", "data": response}
-                elif action == "unretweet":
-                    response = client.unretweet(id_to_use)
-                    return {"status": "success", "message": "Tweet unretweeted successfully", "data": response}
-                else:
-                    raise HTTPException(status_code=400, detail=f"Unsupported action: {action}")
-            except Exception as e:
-                logger.error(f"Error performing {action} on tweet {id_to_use}: {str(e)}")
-                raise e
-        
-        # First attempt with the original ID
+        # Perform the action
         try:
-            return perform_action(tweet_id)
-        except Exception as first_error:
-            logger.warning(f"First attempt failed: {str(first_error)}")
-            
-            # If the ID ends with '00', try with '50' as a fallback
-            if tweet_id.endswith('00'):
-                try:
-                    alternative_id = tweet_id[:-2] + '50'
-                    logger.info(f"Attempting with alternative ID: {alternative_id}")
-                    return perform_action(alternative_id)
-                except Exception as second_error:
-                    logger.error(f"Alternative ID attempt failed: {str(second_error)}")
-            
-            # If we have edit history, try with the first edit history ID
-            try:
-                # Try to get the tweet to check for edit_history_tweet_ids
-                tweet_data = client.get_tweet(
-                    tweet_id, 
-                    tweet_fields=["edit_history_tweet_ids"]
-                )
-                
-                if tweet_data and hasattr(tweet_data.data, 'edit_history_tweet_ids') and tweet_data.data.edit_history_tweet_ids:
-                    edit_history_id = tweet_data.data.edit_history_tweet_ids[0]
-                    if edit_history_id != tweet_id:
-                        logger.info(f"Attempting with edit history ID: {edit_history_id}")
-                        return perform_action(edit_history_id)
-            except Exception as third_error:
-                logger.error(f"Edit history attempt failed: {str(third_error)}")
-            
-            # If all attempts failed, raise the original error
-            raise HTTPException(status_code=400, detail=f"Failed to {action} tweet: {str(first_error)}")
+            if action == "like":
+                response = client.like(tweet_id)
+                return {"status": "success", "message": "Tweet liked successfully", "data": response}
+            elif action == "unlike":
+                response = client.unlike(tweet_id)
+                return {"status": "success", "message": "Tweet unliked successfully", "data": response}
+            elif action == "retweet":
+                response = client.retweet(tweet_id)
+                return {"status": "success", "message": "Tweet retweeted successfully", "data": response}
+            elif action == "unretweet":
+                response = client.unretweet(tweet_id)
+                return {"status": "success", "message": "Tweet unretweeted successfully", "data": response}
+            else:
+                raise HTTPException(status_code=400, detail=f"Unsupported action: {action}")
+        except tweepy.TweepyException as e:
+            error_message = str(e)
+            logger.error(f"Twitter API error: {error_message}")
+            raise HTTPException(status_code=400, detail=f"Twitter API error: {error_message}")
             
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error in tweet_action: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+def format_time_until(timestamp):
+    """
+    Format the time until a given timestamp in a human-readable format.
+    
+    Args:
+        timestamp: Unix timestamp
+        
+    Returns:
+        String like "5 minutes" or "30 seconds"
+    """
+    seconds_until = max(0, int(timestamp - time.time()))
+    
+    if seconds_until < 60:
+        return f"{seconds_until} second{'s' if seconds_until != 1 else ''}"
+    else:
+        minutes_until = max(1, int(seconds_until / 60))
+        return f"{minutes_until} minute{'s' if minutes_until != 1 else ''}"
 
 if __name__ == "__main__":
     import uvicorn

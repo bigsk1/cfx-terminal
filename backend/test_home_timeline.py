@@ -35,7 +35,7 @@ try:
     print("\nFetching home timeline with correct parameter names...")
     timeline = client.get_home_timeline(
         max_results=5,
-        tweet_fields="created_at,public_metrics,entities,referenced_tweets,attachments",
+        tweet_fields="created_at,public_metrics,entities,referenced_tweets,attachments,edit_history_tweet_ids",
         user_fields="profile_image_url,verified",
         media_fields="url,preview_image_url,type,duration_ms,height,width,alt_text,variants",
         expansions="author_id,referenced_tweets.id,referenced_tweets.id.author_id,attachments.media_keys"
@@ -50,13 +50,13 @@ try:
             print(f"ID: {tweet.id}")
             print(f"Text: {tweet.text[:50]}...")
             
-            # Check if the ID ends with '00'
-            if str(tweet.id).endswith('00'):
-                print(f"NOTE: This tweet ID ends with '00'")
-            
             # Check for edit history
             if hasattr(tweet, 'edit_history_tweet_ids'):
                 print(f"Edit history: {tweet.edit_history_tweet_ids}")
+                
+                # If the ID is in the edit history but not the first one, note this
+                if str(tweet.id) in tweet.edit_history_tweet_ids and tweet.edit_history_tweet_ids[0] != str(tweet.id):
+                    print(f"NOTE: This tweet ID is in the edit history but not the first one")
             
             # Check for referenced tweets
             if hasattr(tweet, 'referenced_tweets') and tweet.referenced_tweets:
@@ -78,7 +78,7 @@ try:
         # Try to like the first tweet
         test_tweet = timeline.data[0]
         test_id = test_tweet.id
-        print(f"\nTesting with real tweet ID: {test_id}")
+        print(f"\nTesting with tweet ID: {test_id}")
         
         # Try to like the tweet directly
         try:
@@ -92,6 +92,23 @@ try:
             print(f"Unlike response: {unlike_response}")
         except Exception as e:
             print(f"Error liking/unliking tweet: {str(e)}")
+            
+            # If there's an error, check if the tweet has edit history
+            if hasattr(test_tweet, 'edit_history_tweet_ids') and test_tweet.edit_history_tweet_ids:
+                edit_id = test_tweet.edit_history_tweet_ids[0]
+                print(f"Trying with first edit history ID: {edit_id}")
+                
+                try:
+                    like_response = client.like(edit_id)
+                    print(f"Successfully liked tweet with edit history ID: {edit_id}")
+                    print(f"Like response: {like_response}")
+                    
+                    # Try to unlike it to reset state
+                    unlike_response = client.unlike(edit_id)
+                    print(f"Successfully unliked tweet with edit history ID: {edit_id}")
+                    print(f"Unlike response: {unlike_response}")
+                except Exception as e2:
+                    print(f"Error with edit history ID: {str(e2)}")
     else:
         print("No tweets found in timeline")
             
