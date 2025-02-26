@@ -14,6 +14,7 @@ import re
 import uuid
 from pathlib import Path
 import logging
+import time
 
 # Configure logging
 logging.basicConfig(
@@ -402,15 +403,12 @@ async def post_tweet(request: PostTweetRequest):
             twitter_credentials["access_token_secret"]
         )
         
-        # Upload image for main tweet if provided
+        # Upload image for main tweet if provided (unchanged)
         media_id = None
         if request.image_url:
-            # Download the image
             image_response = requests.get(request.image_url)
             image_response.raise_for_status()
             image_data = image_response.content
-            
-            # Upload to Twitter
             files = {"media": ("image.jpg", image_data)}
             upload_response = requests.post(
                 "https://upload.twitter.com/1.1/media/upload.json",
@@ -420,22 +418,27 @@ async def post_tweet(request: PostTweetRequest):
             upload_response.raise_for_status()
             media_id = upload_response.json().get("media_id_string")
         
-        # Post the main tweet
+        # Post the main tweet with rate limit debug
         tweet_ids = []
         previous_id = request.reply_to
-        
-        # Post the first tweet
+        # Pre-POST check
+        logger.info("Checking rate limits before POST...")
+        test_response = requests.get(
+            "https://api.twitter.com/2/users/me",
+            auth=auth
+        )
+        logger.info(f"Pre-POST GET Headers: Total={test_response.headers.get('x-rate-limit-limit')}, "
+                    f"Remaining={test_response.headers.get('x-rate-limit-remaining')}, "
+                    f"Reset={test_response.headers.get('x-rate-limit-reset')}")
+        logger.info(f"Pre-POST Response: {test_response.text}")
+
+        # Main POST
         payload = {"text": request.text}
-        
-        # Add reply_to if specified
         if previous_id:
             payload["reply"] = {"in_reply_to_tweet_id": previous_id}
-            
-        # Add media if available
         if media_id:
             payload["media"] = {"media_ids": [media_id]}
-            
-        # Post the tweet and get rate limit to were how many remaining
+
         response = requests.post(
             "https://api.twitter.com/2/tweets",
             auth=auth,
@@ -445,31 +448,26 @@ async def post_tweet(request: PostTweetRequest):
             response.raise_for_status()
         except requests.exceptions.HTTPError as e:
             if response.status_code == 429:
-                print(f"Rate Limit Headers:")
-                print(f"Total Limit: {response.headers.get('x-rate-limit-limit')}")
-                print(f"Remaining: {response.headers.get('x-rate-limit-remaining')}")
+                logger.info(f"Rate Limit Headers for /2/tweets at {time.strftime('%Y-%m-%d %H:%M:%S')}:")
+                logger.info(f"Total Limit: {response.headers.get('x-rate-limit-limit')}")
+                logger.info(f"Remaining: {response.headers.get('x-rate-limit-remaining')}")
                 reset_time = response.headers.get('x-rate-limit-reset')
                 if reset_time:
-                    print(f"Reset Time (UTC): {strftime('%Y-%m-%d %H:%M:%S', gmtime(int(reset_time)))}")
+                    logger.info(f"Reset Time (UTC): {time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(int(reset_time)))}")
+                logger.info(f"Response Body: {response.text}")
             raise HTTPException(status_code=500, detail=f"Error posting tweet: {str(e)}")
-        response.raise_for_status()
         
-        # Get the tweet ID
         tweet_id = response.json()["data"]["id"]
         tweet_ids.append(tweet_id)
         previous_id = tweet_id
         
-        # Post thread tweets if any
+        # Post thread tweets if any (unchanged for brevity)
         for i, thread_text in enumerate(request.threads):
-            # Check if we have an image for this thread tweet
             thread_media_id = None
             if i < len(request.thread_images) and request.thread_images[i]:
-                # Download the thread image
                 thread_image_response = requests.get(request.thread_images[i])
                 thread_image_response.raise_for_status()
                 thread_image_data = thread_image_response.content
-                
-                # Upload to Twitter
                 thread_files = {"media": ("thread_image.jpg", thread_image_data)}
                 thread_upload_response = requests.post(
                     "https://upload.twitter.com/1.1/media/upload.json",
@@ -483,8 +481,6 @@ async def post_tweet(request: PostTweetRequest):
                 "text": thread_text,
                 "reply": {"in_reply_to_tweet_id": previous_id}
             }
-            
-            # Add media if available for this thread tweet
             if thread_media_id:
                 thread_payload["media"] = {"media_ids": [thread_media_id]}
             
@@ -494,7 +490,6 @@ async def post_tweet(request: PostTweetRequest):
                 json=thread_payload
             )
             thread_response.raise_for_status()
-            
             thread_id = thread_response.json()["data"]["id"]
             tweet_ids.append(thread_id)
             previous_id = thread_id

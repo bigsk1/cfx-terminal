@@ -46,3 +46,7 @@ out/
 .DS_Store
 *.swp
 *.swo 
+
+.cursor*
+.github/*
+.github/workflows/*
