@@ -1514,8 +1514,10 @@ export default function Home() {
                             alt="Generated image" 
                             width="100%" 
                             height="auto"
-                            maxHeight="300px"
-                            objectFit="contain"
+                            maxHeight="500px"
+                            objectFit="scale-down"
+                            bg="blackAlpha.400"
+                            p={2}
                           />
                           
                           <Box p={2} bg="blackAlpha.300" className="button-container" width="100%">
@@ -1599,7 +1601,8 @@ export default function Home() {
                                   alt={`Generated image ${index}`}
                                   width="100%"
                                   height="150px"
-                                  objectFit="cover"
+                                  objectFit="scale-down"
+                                  bg="blackAlpha.300"
                                   fallback={<Box height="150px" bg="blackAlpha.300" display="flex" alignItems="center" justifyContent="center"><Text>Loading...</Text></Box>}
                                 />
                                 <Box p={2} bg="blackAlpha.400" className="button-container" width="100%">
