@@ -11,6 +11,7 @@ to your cloudflare images gallery.
 - **Advanced Twitter Preview**: Real-time rendering of how tweets will appear with character count
 - **Thread Management**: Smart thread creation for longer content
 - **Direct Posting**: Post directly to Twitter with one click
+- **Twitter Timeline**: View your home timeline, like, retweet, and reply to tweets directly
 - **Configurable AI Models**: Support for different OpenAI models - Can use xAI and Grok
 - **Cloudflare Image Gallery**: Store and reuse generated images with Cloudflare Images integration
 - **Tweet Management**: View and delete your posted tweets
@@ -22,8 +23,19 @@ to your cloudflare images gallery.
 - **Frontend**: Next.js with Chakra UI for a cyberpunk aesthetic
 - **Backend**: Python FastAPI for high-performance API endpoints
 - **AI Integration**: OpenAI or xAI for text generation and DALL-E 3 for image creation
-- **Twitter API**: For posting tweets, threads, and images
+- **Twitter API**: For posting tweets, threads, and images, and interacting with the timeline
 - **Cloudflare Images**: Optional integration for image hosting
+
+## Twitter Timeline Integration
+
+The application includes a full Twitter timeline integration:
+
+1. View your home timeline with tweets from accounts you follow
+2. Like, retweet, and reply to tweets directly from the interface
+3. See media attachments, quoted tweets, and other rich content
+4. Automatic handling of rate limits with caching for better performance
+
+![Timeline](frontend/public/images/timeline.png)
 
 ## Cloudflare Images Integration
 
@@ -76,6 +88,16 @@ To configure Cloudflare integration:
    CLOUDFLARE_ACCOUNT_ID=your_cloudflare_account_id
    CLOUDFLARE_API_TOKEN=your_cloudflare_api_token
    ```
+
+### Twitter API Access Requirements
+
+CFX-Terminal requires the following Twitter API access:
+
+- **API v2 endpoints**: For posting tweets, viewing timeline, and tweet interactions
+- **API v1.1 endpoints**: For media uploads and OAuth authentication
+- **Elevated access**: Basic access is sufficient for most features, but elevated access provides better rate limits
+
+The application is designed to work with the free tier of Twitter API access, but some features may be limited based on your access level.
 
 ### AI Model Configuration
 
@@ -173,7 +195,9 @@ You can customize the Docker configuration by editing the files in the `docker` 
 2. **Generate Images**: Describe the image you want and let DALL-E 3 create it
 3. **Preview & Edit**: Review how your tweet will appear and make any necessary edits
 4. **Post to Twitter**: Send your creation directly to X with one click
-5. **Toggle on Chat**: Just chat with the model, you can also just generate images with Dalle-3
+5. **Browse Timeline**: View your Twitter timeline and interact with tweets
+6. **Toggle on Chat**: Just chat with the model, you can also just generate images with Dalle-3
+
 ## License
 
 MIT 

@@ -456,106 +456,133 @@ async def post_tweet(request: PostTweetRequest):
                    twitter_credentials["access_token_secret"]]):
             raise HTTPException(status_code=400, detail="Twitter API credentials not configured")
             
-        auth = OAuth1(
+        # Initialize Twitter client for Tweepy API v1.1 (for media upload)
+        auth = tweepy.OAuth1UserHandler(
             twitter_credentials["consumer_key"],
             twitter_credentials["consumer_secret"],
             twitter_credentials["access_token"],
             twitter_credentials["access_token_secret"]
         )
+        twitter_client = tweepy.API(auth)
         
-        # Upload image for main tweet if provided (unchanged)
+        # Initialize Twitter client with OAuth 2.0 for API v2 (for posting tweets)
+        client = tweepy.Client(
+            consumer_key=twitter_credentials["consumer_key"],
+            consumer_secret=twitter_credentials["consumer_secret"],
+            access_token=twitter_credentials["access_token"],
+            access_token_secret=twitter_credentials["access_token_secret"]
+        )
+        
+        # Handle media upload if provided
         media_id = None
         if request.image_url:
-            image_response = requests.get(request.image_url)
-            image_response.raise_for_status()
-            image_data = image_response.content
-            files = {"media": ("image.jpg", image_data)}
-            upload_response = requests.post(
-                "https://upload.twitter.com/1.1/media/upload.json",
-                auth=auth,
-                files=files
-            )
-            upload_response.raise_for_status()
-            media_id = upload_response.json().get("media_id_string")
+            try:
+                # Download the image
+                image_response = requests.get(request.image_url)
+                image_response.raise_for_status()
+                image_data = image_response.content
+                
+                # Save the image temporarily
+                temp_image_path = f"temp_images/tweet_{uuid.uuid4()}.jpg"
+                os.makedirs("temp_images", exist_ok=True)  # Ensure directory exists
+                with open(temp_image_path, "wb") as f:
+                    f.write(image_data)
+                
+                # Upload media to Twitter using Tweepy's API v1.1
+                media_upload = twitter_client.media_upload(filename=temp_image_path)
+                media_id = media_upload.media_id_string
+                
+                # Clean up the temporary file
+                os.remove(temp_image_path)
+                
+                logger.info(f"Successfully uploaded media with ID: {media_id}")
+                
+            except Exception as e:
+                logger.error(f"Error uploading media: {str(e)}")
+                raise HTTPException(status_code=500, detail=f"Error uploading image: {str(e)}")
         
-        # Post the main tweet with rate limit debug
+        # Post the main tweet
         tweet_ids = []
         previous_id = request.reply_to
-        # Pre-POST check
-        logger.info("Checking rate limits before POST...")
-        test_response = requests.get(
-            "https://api.twitter.com/2/users/me",
-            auth=auth
-        )
-        logger.info(f"Pre-POST GET Headers: Total={test_response.headers.get('x-rate-limit-limit')}, "
-                    f"Remaining={test_response.headers.get('x-rate-limit-remaining')}, "
-                    f"Reset={test_response.headers.get('x-rate-limit-reset')}")
-        logger.info(f"Pre-POST Response: {test_response.text}")
-
-        # Main POST
-        payload = {"text": request.text}
-        if previous_id:
-            payload["reply"] = {"in_reply_to_tweet_id": previous_id}
-        if media_id:
-            payload["media"] = {"media_ids": [media_id]}
-
-        response = requests.post(
-            "https://api.twitter.com/2/tweets",
-            auth=auth,
-            json=payload
-        )
+        
+        # Post the tweet using Tweepy's v2 API
         try:
-            response.raise_for_status()
-        except requests.exceptions.HTTPError as e:
-            if response.status_code == 429:
-                logger.info(f"Rate Limit Headers for /2/tweets at {time.strftime('%Y-%m-%d %H:%M:%S')}:")
-                logger.info(f"Total Limit: {response.headers.get('x-rate-limit-limit')}")
-                logger.info(f"Remaining: {response.headers.get('x-rate-limit-remaining')}")
-                reset_time = response.headers.get('x-rate-limit-reset')
-                if reset_time:
-                    logger.info(f"Reset Time (UTC): {time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(int(reset_time)))}")
-                logger.info(f"Response Body: {response.text}")
-            raise HTTPException(status_code=500, detail=f"Error posting tweet: {str(e)}")
+            if media_id:
+                response = client.create_tweet(
+                    text=request.text,
+                    media_ids=[media_id],
+                    in_reply_to_tweet_id=previous_id
+                )
+            else:
+                response = client.create_tweet(
+                    text=request.text,
+                    in_reply_to_tweet_id=previous_id
+                )
+            
+            tweet_id = response.data["id"]
+            tweet_ids.append(tweet_id)
+            previous_id = tweet_id
+            
+        except tweepy.TweepyException as e:
+            logger.error(f"Error posting tweet: {str(e)}")
+            raise HTTPException(status_code=400, detail=f"Twitter API error: {str(e)}")
         
-        tweet_id = response.json()["data"]["id"]
-        tweet_ids.append(tweet_id)
-        previous_id = tweet_id
-        
-        # Post thread tweets if any (unchanged for brevity)
+        # Post thread tweets if any
         for i, thread_text in enumerate(request.threads):
             thread_media_id = None
             if i < len(request.thread_images) and request.thread_images[i]:
-                thread_image_response = requests.get(request.thread_images[i])
-                thread_image_response.raise_for_status()
-                thread_image_data = thread_image_response.content
-                thread_files = {"media": ("thread_image.jpg", thread_image_data)}
-                thread_upload_response = requests.post(
-                    "https://upload.twitter.com/1.1/media/upload.json",
-                    auth=auth,
-                    files=thread_files
-                )
-                thread_upload_response.raise_for_status()
-                thread_media_id = thread_upload_response.json().get("media_id_string")
+                try:
+                    # Download the thread image
+                    thread_image_response = requests.get(request.thread_images[i])
+                    thread_image_response.raise_for_status()
+                    thread_image_data = thread_image_response.content
+                    
+                    # Save the image temporarily
+                    thread_image_path = f"temp_images/thread_{uuid.uuid4()}.jpg"
+                    os.makedirs("temp_images", exist_ok=True)  # Ensure directory exists
+                    with open(thread_image_path, "wb") as f:
+                        f.write(thread_image_data)
+                    
+                    # Upload media to Twitter using Tweepy's API v1.1
+                    thread_media_upload = twitter_client.media_upload(filename=thread_image_path)
+                    thread_media_id = thread_media_upload.media_id_string
+                    
+                    # Clean up the temporary file
+                    os.remove(thread_image_path)
+                    
+                    logger.info(f"Successfully uploaded thread media with ID: {thread_media_id}")
+                    
+                except Exception as e:
+                    logger.error(f"Error uploading thread media: {str(e)}")
+                    # Continue without the image if there's an error
             
-            thread_payload = {
-                "text": thread_text,
-                "reply": {"in_reply_to_tweet_id": previous_id}
-            }
-            if thread_media_id:
-                thread_payload["media"] = {"media_ids": [thread_media_id]}
-            
-            thread_response = requests.post(
-                "https://api.twitter.com/2/tweets",
-                auth=auth,
-                json=thread_payload
-            )
-            thread_response.raise_for_status()
-            thread_id = thread_response.json()["data"]["id"]
-            tweet_ids.append(thread_id)
-            previous_id = thread_id
-            
+            # Post the thread tweet using Tweepy's v2 API
+            try:
+                if thread_media_id:
+                    thread_response = client.create_tweet(
+                        text=thread_text,
+                        media_ids=[thread_media_id],
+                        in_reply_to_tweet_id=previous_id
+                    )
+                else:
+                    thread_response = client.create_tweet(
+                        text=thread_text,
+                        in_reply_to_tweet_id=previous_id
+                    )
+                
+                thread_id = thread_response.data["id"]
+                tweet_ids.append(thread_id)
+                previous_id = thread_id
+                
+            except tweepy.TweepyException as e:
+                logger.error(f"Error posting thread tweet: {str(e)}")
+                # Continue with the next thread tweet if there's an error
+        
         return {"success": True, "tweet_ids": tweet_ids}
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.error(f"Error posting tweet: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error posting tweet: {str(e)}")
 
 @app.post("/api/delete-tweet")
@@ -1148,28 +1175,29 @@ async def post_tweet(
     media: UploadFile = None,
     reply_to_tweet_id: str = Form(None),
 ):
-    """
-    Post a tweet to Twitter.
-    """
+    """Post tweet to Twitter using v2 API"""
     try:
-        # Check if Twitter credentials are available
+        # Log the request
+        logger.info(f"Received post_tweet request: text={text}, media={media}, reply_to_tweet_id={reply_to_tweet_id}")
+        
+        # Get Twitter credentials
         twitter_api_key = os.environ.get("X_CONSUMER_KEY")
         twitter_api_secret = os.environ.get("X_CONSUMER_SECRET")
         twitter_access_token = os.environ.get("X_ACCESS_TOKEN")
-        twitter_access_secret = os.environ.get("X_ACCESS_TOKEN_SECRET")
+        twitter_access_token_secret = os.environ.get("X_ACCESS_TOKEN_SECRET")
         
-        if not all([twitter_api_key, twitter_api_secret, twitter_access_token, twitter_access_secret]):
+        if not all([twitter_api_key, twitter_api_secret, twitter_access_token, twitter_access_token_secret]):
             raise HTTPException(
                 status_code=400,
                 detail="Twitter API credentials not configured"
             )
         
-        # Initialize Twitter client
+        # Initialize Twitter client for Tweepy API
         auth = tweepy.OAuth1UserHandler(
             twitter_api_key,
             twitter_api_secret,
             twitter_access_token,
-            twitter_access_secret
+            twitter_access_token_secret
         )
         twitter_client = tweepy.API(auth)
         
@@ -1178,23 +1206,42 @@ async def post_tweet(
             consumer_key=twitter_api_key,
             consumer_secret=twitter_api_secret,
             access_token=twitter_access_token,
-            access_token_secret=twitter_access_secret
+            access_token_secret=twitter_access_token_secret
         )
         
         # Handle media upload if provided
         media_id = None
         if media:
-            # Read the file content
-            file_content = await media.read()
-            
-            # Upload media to Twitter
-            media_upload = twitter_client.media_upload(
-                filename=media.filename,
-                file=file_content
-            )
-            media_id = media_upload.media_id_string
+            try:
+                # Read the file content
+                file_content = await media.read()
+                
+                # Create a temporary file to handle the upload
+                temp_file_path = f"temp_images/upload_{uuid.uuid4()}.jpg"
+                os.makedirs("temp_images", exist_ok=True)  # Ensure directory exists
+                
+                # Save to a temporary file
+                with open(temp_file_path, "wb") as f:
+                    f.write(file_content)
+                
+                # Upload media to Twitter using Tweepy's API v1.1
+                media_upload = twitter_client.media_upload(filename=temp_file_path)
+                media_id = media_upload.media_id_string
+                
+                # Clean up the temporary file
+                os.remove(temp_file_path)
+                
+                logger.info(f"Successfully uploaded media with ID: {media_id}")
+                
+            except Exception as e:
+                logger.error(f"Error uploading media: {str(e)}")
+                # Continue without the image if there's an error
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Error uploading image: {str(e)}"
+                )
         
-        # Post the tweet
+        # Post the tweet using Tweepy's v2 API
         if media_id:
             response = client.create_tweet(
                 text=text,
@@ -1225,9 +1272,7 @@ async def post_tweet(
 
 @app.post("/api/twitter/reply")
 async def reply_to_tweet(request: Request):
-    """
-    Reply to a tweet
-    """
+    """Reply to a tweet using v2 API"""
     try:
         # Parse the request body
         body = await request.json()
@@ -1235,28 +1280,28 @@ async def reply_to_tweet(request: Request):
         text = body.get("text")
         image_url = body.get("image_url")
         
-        # Check for required parameters
+        # Check required parameters
         if not tweet_id or not text:
-            raise HTTPException(status_code=400, detail="Missing required parameters: tweet_id and text")
+            raise HTTPException(status_code=400, detail="tweet_id and text are required")
         
-        # Log the incoming request
-        logger.info(f"Reply to tweet request: id={tweet_id}, text={text[:30]}...")
+        # Log the request
+        logger.info(f"Received reply request: tweet_id={tweet_id}, text={text}, image_url={image_url}")
         
-        # Check for Twitter API credentials
+        # Get Twitter credentials
         twitter_api_key = os.environ.get("X_CONSUMER_KEY")
         twitter_api_secret = os.environ.get("X_CONSUMER_SECRET")
         twitter_access_token = os.environ.get("X_ACCESS_TOKEN")
-        twitter_access_secret = os.environ.get("X_ACCESS_TOKEN_SECRET")
+        twitter_access_token_secret = os.environ.get("X_ACCESS_TOKEN_SECRET")
         
-        if not all([twitter_api_key, twitter_api_secret, twitter_access_token, twitter_access_secret]):
+        if not all([twitter_api_key, twitter_api_secret, twitter_access_token, twitter_access_token_secret]):
             raise HTTPException(status_code=400, detail="Twitter API credentials not configured")
         
-        # Initialize Twitter client
+        # Initialize Twitter client with OAuth 2.0 for API v2 (for posting tweets)
         client = tweepy.Client(
             consumer_key=twitter_api_key,
             consumer_secret=twitter_api_secret,
             access_token=twitter_access_token,
-            access_token_secret=twitter_access_secret
+            access_token_secret=twitter_access_token_secret
         )
         
         # Get the correct tweet ID (checking edit history if needed)
@@ -1273,21 +1318,13 @@ async def reply_to_tweet(request: Request):
                 
                 # Save the image temporarily
                 temp_image_path = f"temp_images/reply_{uuid.uuid4()}.jpg"
+                os.makedirs("temp_images", exist_ok=True)  # Ensure directory exists
                 with open(temp_image_path, "wb") as f:
                     f.write(image_response.content)
                 
-                # Initialize Twitter API v1.1 for media upload
-                auth = tweepy.OAuth1UserHandler(
-                    twitter_api_key,
-                    twitter_api_secret,
-                    twitter_access_token,
-                    twitter_access_secret
-                )
-                api = tweepy.API(auth)
-                
-                # Upload the image
-                media = api.media_upload(temp_image_path)
-                media_id = media.media_id
+                # Upload the image using Tweepy's API v1.1
+                media_upload = twitter_client.media_upload(filename=temp_image_path)
+                media_id = media_upload.media_id
                 
                 # Clean up the temporary file
                 os.remove(temp_image_path)
@@ -1296,12 +1333,12 @@ async def reply_to_tweet(request: Request):
                 logger.error(f"Error uploading image: {str(e)}")
                 # Continue without the image if there's an error
         
-        # Reply to the tweet
+        # Reply to the tweet using Tweepy's v2 API
         if media_id:
             response = client.create_tweet(
                 text=text,
-                in_reply_to_tweet_id=tweet_id,
-                media_ids=[media_id]
+                media_ids=[media_id],
+                in_reply_to_tweet_id=tweet_id
             )
         else:
             response = client.create_tweet(
@@ -1309,7 +1346,7 @@ async def reply_to_tweet(request: Request):
                 in_reply_to_tweet_id=tweet_id
             )
         
-        return {"status": "success", "message": "Reply sent successfully", "data": response}
+        return {"status": "success", "message": "Reply sent successfully", "data": response.data}
         
     except tweepy.TweepyException as e:
         logger.error(f"Twitter API error: {str(e)}")
