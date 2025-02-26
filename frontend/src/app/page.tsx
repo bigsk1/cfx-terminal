@@ -1,248 +1,75 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
-import { 
-  Box, Container, Text, Input, Button, Textarea, 
-  VStack, HStack, Image, Divider, useToast, 
-  Switch, FormControl, FormLabel, Badge, Flex,
-  IconButton, Spinner, useColorModeValue,
-  Tabs, TabList, TabPanels, Tab, TabPanel,
-  Code, Tooltip, Select, Menu, MenuButton, MenuList, MenuItem
-} from '@chakra-ui/react';
-import { 
-  ChatIcon, EditIcon, CheckIcon, CloseIcon, 
-  AttachmentIcon, RepeatIcon, ExternalLinkIcon,
-  CopyIcon, ArrowForwardIcon, AddIcon, ViewIcon,
-  ArrowUpIcon, ArrowDownIcon, DeleteIcon, ChevronDownIcon, StarIcon
-} from '@chakra-ui/icons';
+import React, { useState, useEffect, useRef } from "react";
+import {
+  Box,
+  Button,
+  Container,
+  Flex,
+  Input,
+  Text,
+  Textarea,
+  VStack,
+  HStack,
+  useToast,
+  Tabs,
+  TabList,
+  TabPanels,
+  Tab,
+  TabPanel,
+  Select,
+  Spinner,
+  Badge,
+  Divider,
+  IconButton,
+  Tooltip,
+  Switch,
+  FormControl,
+  FormLabel,
+  Checkbox,
+  SimpleGrid,
+  Image as ChakraImage,
+  Menu,
+  MenuButton,
+  MenuList,
+  MenuItem,
+} from "@chakra-ui/react";
+import {
+  AddIcon,
+  CheckIcon,
+  CloseIcon,
+  DeleteIcon,
+  DownloadIcon,
+  ExternalLinkIcon,
+  RepeatIcon,
+  ViewIcon,
+  AttachmentIcon,
+  ChevronDownIcon,
+  ArrowForwardIcon,
+  ArrowUpIcon,
+  ArrowDownIcon,
+  EditIcon,
+  StarIcon,
+} from "@chakra-ui/icons";
 
-// CloudflareImageCard component for better performance
-const CloudflareImageCard = ({ 
-  image, 
-  isSelected, 
-  primaryColor, 
-  onSelect,
-  onSelectForThread
-}: { 
-  image: { id: string; url: string; uploaded: string; }; 
-  isSelected: boolean; 
-  primaryColor: string;
-  onSelect: (url: string) => void;
-  onSelectForThread?: (url: string) => void;
-}) => {
-  const [isLoading, setIsLoading] = useState(true);
-  const [hasError, setHasError] = useState(false);
-  const [imageTitle, setImageTitle] = useState(`Image ${image.id.substring(0, 8)}...`);
-  const [showOptions, setShowOptions] = useState(false);
+// Define Message type for better type safety
+interface Message {
+  role: string;
+  content: string;
+  tweetData?: {
+    text: string;
+    threads?: { text: string; imageUrl?: string }[];
+  };
+  imageUrl?: string;
+  tweetId?: string;
+  threadIds?: string[];
+}
 
-  // Use a ref to track if the component is mounted
-  const isMounted = useRef(true);
-  
-  // Clean up on unmount
-  useEffect(() => {
-    return () => {
-      isMounted.current = false;
-    };
-  }, []);
-
-  // Attempt to load the image on mount
-  useEffect(() => {
-    // Create image element with proper typing
-    const img = new (window.Image || Image)();
-    img.onload = () => {
-      if (isMounted.current) {
-        setIsLoading(false);
-        setHasError(false);
-      }
-    };
-    img.onerror = () => {
-      if (isMounted.current) {
-        setIsLoading(false);
-        setHasError(true);
-        console.warn(`Failed to load image: ${image.url}`);
-      }
-    };
-    img.src = image.url;
-    
-    // Format a nicer title from the image ID
-    const formattedId = image.id.split('-')[0];
-    setImageTitle(`Image ${formattedId}`);
-    
-    return () => {
-      img.onload = null;
-      img.onerror = null;
-    };
-  }, [image.url, image.id]);
-
-  return (
-    <Box 
-      position="relative" 
-      borderRadius="md" 
-      overflow="hidden"
-      width="150px"
-      height="150px"
-      cursor="pointer"
-      onClick={() => {
-        if (onSelectForThread) {
-          setShowOptions(!showOptions);
-        } else {
-          onSelect(image.url);
-        }
-      }}
-      border={isSelected ? "2px solid" : "1px solid"}
-      borderColor={isSelected ? primaryColor : "whiteAlpha.300"}
-      bg="blackAlpha.400"
-      onMouseLeave={() => setShowOptions(false)}
-    >
-      {/* Loading spinner */}
-      {isLoading && (
-        <Box 
-          position="absolute"
-          top="0"
-          left="0"
-          right="0"
-          bottom="0"
-          display="flex"
-          alignItems="center"
-          justifyContent="center"
-          bg="blackAlpha.300"
-          zIndex="1"
-        >
-          <Spinner size="sm" color={primaryColor} />
-        </Box>
-      )}
-      
-      {/* Image */}
-      <Box
-        width="100%"
-        height="100%"
-        position="relative"
-        zIndex="2"
-      >
-        {!hasError ? (
-          <Image 
-            src={image.url} 
-            alt={`Image ${image.id}`}
-            width="100%"
-            height="100%"
-            objectFit="cover"
-            loading="lazy"
-            crossOrigin="anonymous"
-            onError={() => setHasError(true)}
-            onLoad={() => setIsLoading(false)}
-            style={{ opacity: isLoading ? 0 : 1 }}
-            transition="opacity 0.3s ease"
-          />
-        ) : (
-          <Box
-            width="100%"
-            height="100%"
-            display="flex"
-            alignItems="center"
-            justifyContent="center"
-            bg="gray.700"
-            color="whiteAlpha.700"
-            fontSize="xs"
-            textAlign="center"
-            p={2}
-          >
-            <VStack spacing={1}>
-              <Text>Image not available</Text>
-              <Text fontSize="9px" opacity={0.7}>{image.id}</Text>
-            </VStack>
-          </Box>
-        )}
-      </Box>
-      
-      {/* Date overlay */}
-      <Box 
-        position="absolute" 
-        bottom={0} 
-        left={0} 
-        right={0}
-        bg="blackAlpha.700"
-        p={1}
-        fontSize="xs"
-        zIndex="3"
-      >
-        <Text noOfLines={1}>
-          {new Date(image.uploaded).toLocaleDateString()}
-        </Text>
-      </Box>
-      
-      {/* Selected indicator */}
-      {isSelected && (
-        <Box 
-          position="absolute" 
-          top={2} 
-          right={2}
-          bg={primaryColor}
-          borderRadius="full"
-          p={1}
-          zIndex="3"
-        >
-          <CheckIcon boxSize={3} />
-        </Box>
-      )}
-
-      {/* Thread selection options */}
-      {showOptions && onSelectForThread && (
-        <Box
-          position="absolute"
-          top={0}
-          left={0}
-          right={0}
-          bottom={0}
-          bg="blackAlpha.800"
-          zIndex={10}
-          display="flex"
-          flexDirection="column"
-          justifyContent="center"
-          alignItems="center"
-          p={2}
-        >
-          <VStack spacing={2}>
-            <Button 
-              size="xs" 
-              colorScheme="blue" 
-              width="100%" 
-              onClick={(e) => {
-                e.stopPropagation();
-                onSelect(image.url);
-                setShowOptions(false);
-              }}
-            >
-              Main Tweet
-            </Button>
-            <Button 
-              size="xs" 
-              colorScheme="green" 
-              width="100%" 
-              onClick={(e) => {
-                e.stopPropagation();
-                onSelectForThread(image.url);
-                setShowOptions(false);
-              }}
-            >
-              Thread Tweet
-            </Button>
-            <Button 
-              size="xs" 
-              colorScheme="gray" 
-              width="100%" 
-              onClick={(e) => {
-                e.stopPropagation();
-                setShowOptions(false);
-              }}
-            >
-              Cancel
-            </Button>
-          </VStack>
-        </Box>
-      )}
-    </Box>
-  );
-};
+// Define error type
+interface ApiError {
+  message: string;
+  status?: number;
+}
 
 // TweetPreviewImage component
 const TweetPreviewImage = ({ 
@@ -274,7 +101,7 @@ const TweetPreviewImage = ({
           <Spinner size="md" color="#2cb67d" />
         </Box>
       )}
-      <Image 
+      <ChakraImage 
         src={url} 
         alt="Tweet image" 
         borderRadius="md"
@@ -309,7 +136,7 @@ const TweetPreviewImage = ({
 
 export default function Home() {
   // State
-  const [messages, setMessages] = useState<Array<any>>([
+  const [messages, setMessages] = useState<Array<Message>>([
     { role: 'system', content: 'Welcome to CFX-Terminal. How can I help craft your tweet today?' }
   ]);
   const [input, setInput] = useState('');
@@ -317,21 +144,21 @@ export default function Home() {
   const [threads, setThreads] = useState<string[]>([]);
   const [threadImages, setThreadImages] = useState<(string | null)[]>([]);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
-  const [imagePrompt, setImagePrompt] = useState('');
+  const [imagePrompt, setImagePrompt] = useState<string>('');
   const [isWideImage, setIsWideImage] = useState(false);
-  const [isGeneratingImage, setIsGeneratingImage] = useState(false);
+  const [isGeneratingImage, setIsGeneratingImage] = useState<boolean>(false);
   const [isGeneratingTweet, setIsGeneratingTweet] = useState(false);
   const [isPosting, setIsPosting] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [characterCount, setCharacterCount] = useState(0);
-  const [textModel, setTextModel] = useState('Loading...');
-  const [imageModel, setImageModel] = useState('Loading...');
+  const [textModel, setTextModel] = useState<string>("gpt-4o");
+  const [imageModel, setImageModel] = useState<string>('Loading...');
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [selectedModel, setSelectedModel] = useState<string>('');
-  const [selectedImageModel, setSelectedImageModel] = useState<string>('');
+  const [selectedImageModel, setSelectedImageModel] = useState<string>('dall-e-3');
   const [isChatMode, setIsChatMode] = useState(false);
   const [postedTweets, setPostedTweets] = useState<Array<{id: string, text: string, timestamp: string, threadIds: string[]}>>([]);
-  const [cloudflareImages, setCloudflareImages] = useState<Array<{id: string, url: string, uploaded: string}>>([]);
+  const [cloudflareImages, setCloudflareImages] = useState<Array<{id: string; url: string; uploaded: string}>>([]);
   const [isLoadingImages, setIsLoadingImages] = useState(false);
   const [isLoadingMoreImages, setIsLoadingMoreImages] = useState(false);
   const [cloudflareImagesPagination, setCloudflareImagesPagination] = useState({
@@ -344,9 +171,9 @@ export default function Home() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const toast = useToast();
   const [selectedThreadIndex, setSelectedThreadIndex] = useState<number | null>(null);
-  const [cloudflareExpiration, setCloudflareExpiration] = useState('never');
+  const [cloudflareExpiration, setCloudflareExpiration] = useState<string>('never');
   const [videoPreview, setVideoPreview] = useState<{ tweetIndex: number; url: string } | null>(null);
-  const [generatedImages, setGeneratedImages] = useState<Array<{ url: string; timestamp: string; model?: string }>>([]); // Add model field
+  const [generatedImages, setGeneratedImages] = useState<Array<{url: string; timestamp: string; model: string}>>([]);
   const [xaiAvailable, setXaiAvailable] = useState<boolean>(false);
 
   // Load chat history from localStorage on component mount
@@ -406,7 +233,7 @@ export default function Home() {
           console.log('Available models:', data.available_models);
           console.log('xAI available:', data.xai_available);
         }
-      } catch (error) {
+      } catch (error: unknown) {
         console.error('Error fetching model info:', error);
       }
     };
@@ -462,7 +289,7 @@ export default function Home() {
     if (!input.trim()) return;
     
     // Add user message to chat
-    const userMessage = { role: 'user', content: input };
+    const userMessage: Message = { role: 'user', content: input };
     setMessages(prev => [...prev, userMessage]);
     setInput('');
     
@@ -479,8 +306,8 @@ export default function Home() {
           },
           body: JSON.stringify({
             message: input,
-            userName: userName, // Include user name if available
-            model: selectedModel, // Include selected model
+            userName: userName,
+            model: selectedModel,
           }),
         });
 
@@ -492,7 +319,7 @@ export default function Home() {
         const data = await response.json();
         
         // Add AI response to chat
-        const aiMessage = { 
+        const aiMessage: Message = { 
           role: 'assistant', 
           content: data.response
         };
@@ -507,8 +334,8 @@ export default function Home() {
           body: JSON.stringify({
             prompt: input,
             include_image: false,
-            userName: userName, // Include user name if available
-            model: selectedModel, // Include selected model
+            userName: userName,
+            model: selectedModel,
           }),
         });
 
@@ -520,7 +347,7 @@ export default function Home() {
         const data = await response.json();
         
         // Add AI response to chat
-        const aiMessage = { 
+        const aiMessage: Message = { 
           role: 'assistant', 
           content: 'Here\'s a tweet based on your request:',
           tweetData: {
@@ -544,17 +371,17 @@ export default function Home() {
         console.log("Received threads:", data.threads);
         console.log("Updated threads state:", data.threads || []);
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       // Add error message to chat
-      const errorMessage = { 
+      const errorMessage: Message = { 
         role: 'assistant', 
-        content: `Error: ${error.message}. Please try again.` 
+        content: `Error: ${error instanceof Error ? error.message : 'Unknown error'}. Please try again.` 
       };
       setMessages(prev => [...prev, errorMessage]);
       
       toast({
         title: 'Error',
-        description: error.message,
+        description: error instanceof Error ? error.message : 'Unknown error',
         status: 'error',
         duration: 3000,
         isClosable: true,
@@ -619,7 +446,7 @@ export default function Home() {
         }, 
         ...prev
       ]);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Error generating image:', error);
       toast({
         title: 'Error generating image',
@@ -699,16 +526,16 @@ export default function Home() {
           (tabs[galleryTabIndex] as HTMLElement).click();
         }
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       const errorMessage = { 
         role: 'assistant', 
-        content: `Error uploading to Cloudflare: ${error.message}` 
+        content: `Error uploading to Cloudflare: ${error instanceof Error ? error.message : 'Unknown error'}` 
       };
       setMessages(prev => [...prev, errorMessage]);
       
       toast({
         title: 'Error',
-        description: error.message,
+        description: error instanceof Error ? error.message : 'Unknown error',
         status: 'error',
         duration: 3000,
         isClosable: true,
@@ -872,16 +699,16 @@ export default function Home() {
       setImageUrl(null);
       setImagePrompt('');
       
-    } catch (error: any) {
+    } catch (error: unknown) {
       const errorMessage = { 
         role: 'assistant', 
-        content: `Error posting tweet: ${error.message}` 
+        content: `Error posting tweet: ${error instanceof Error ? error.message : 'Unknown error'}` 
       };
       setMessages(prev => [...prev, errorMessage]);
       
       toast({
         title: 'Error',
-        description: error.message,
+        description: error instanceof Error ? error.message : 'Unknown error',
         status: 'error',
         duration: 3000,
         isClosable: true,
@@ -946,16 +773,16 @@ export default function Home() {
         duration: 3000,
         isClosable: true,
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       const errorMessage = { 
         role: 'assistant', 
-        content: `Error deleting tweet: ${error.message}` 
+        content: `Error deleting tweet: ${error instanceof Error ? error.message : 'Unknown error'}` 
       };
       setMessages(prev => [...prev, errorMessage]);
       
       toast({
         title: 'Error',
-        description: error.message,
+        description: error instanceof Error ? error.message : 'Unknown error',
         status: 'error',
         duration: 3000,
         isClosable: true,
@@ -1033,12 +860,12 @@ export default function Home() {
           console.log(`Pre-validation complete: ${validCount}/${imagesToValidate.length} images are valid`);
         });
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error fetching Cloudflare images:', error);
       
       toast({
         title: 'Error',
-        description: error.message,
+        description: error instanceof Error ? error.message : 'Unknown error',
         status: 'error',
         duration: 3000,
         isClosable: true,
@@ -1106,7 +933,7 @@ export default function Home() {
       
       console.error('Image validation request failed');
       return false;
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Error checking image URL:', error);
       return false;
     }
@@ -1129,8 +956,8 @@ export default function Home() {
         resolve(false);
       }, 5000);
       
-      // Create image element with proper typing
-      const img = new (window.Image || Image)();
+      // Create image element (using the browser's Image constructor)
+      const img = new window.Image();
       img.onload = () => {
         clearTimeout(timeout);
         imagePreloadCache.set(url, true);
@@ -1216,7 +1043,7 @@ export default function Home() {
           isClosable: true,
         });
       }
-    } catch (error) {
+    } catch (error: unknown) {
       // Close the loading toast
       toast.close(loadingToast);
       
@@ -1243,8 +1070,8 @@ export default function Home() {
     warning: '#f9c846'
   };
 
-  // Render message content
-  const renderMessageContent = (message: any) => {
+  // Render message content with optional chaining
+  const renderMessageContent = (message: Message) => {
     if (message.tweetData) {
       return (
         <VStack align="stretch" spacing={2}>
@@ -1272,7 +1099,7 @@ export default function Home() {
       return (
         <VStack align="stretch" spacing={2}>
           <Text>{message.content}</Text>
-          <Image 
+          <ChakraImage 
             src={message.imageUrl} 
             alt="Generated image" 
             borderRadius="md"
@@ -1290,7 +1117,7 @@ export default function Home() {
               size="xs" 
               colorScheme="red" 
               leftIcon={<CloseIcon />}
-              onClick={() => handleDeleteTweet(message.tweetId)}
+              onClick={() => handleDeleteTweet(message.tweetId as string)}
               isLoading={isDeleting}
             >
               Delete Tweet
@@ -1418,43 +1245,44 @@ export default function Home() {
 
   return (
     <Box bg={colors.bg} minH="100vh" color={colors.text}>
-      <Container maxW="container.xl" py={4}>
+      <Container maxW="container.xl" py={{ base: 2, md: 4 }}>
         <VStack spacing={4} align="stretch" h="calc(100vh - 2rem)">
           <HStack justify="space-between" pb={2} borderBottom="1px solid" borderColor="whiteAlpha.200">
             <Text 
-              fontSize="2xl" 
+              fontSize={{ base: "xl", md: "2xl" }} 
               fontWeight="bold" 
               bgGradient={`linear(to-r, ${colors.primary}, ${colors.secondary})`} 
               bgClip="text"
             >
               CFX-Terminal
             </Text>
-            <HStack>
+            <HStack spacing={{ base: 1, md: 2 }} className="mobile-gap-1">
               {userName && (
                 <Badge colorScheme="green" variant="solid">
                   User: {userName}
                 </Badge>
               )}
               <Badge colorScheme="purple" variant="solid">v1.0</Badge>
-              <Badge colorScheme="green" variant="outline">CONNECTED</Badge>
+              <Badge colorScheme="green" variant="outline" className="mobile-hide">CONNECTED</Badge>
             </HStack>
           </HStack>
 
-          <Flex flex="1" gap={4}>
+          <Flex flex="1" gap={4} className="mobile-stack">
             {/* Left panel - Chat */}
             <Box 
-              w="50%" 
+              w={{ base: "100%", md: "50%" }} 
               bg={colors.card} 
               borderRadius="lg" 
-              p={4}
+              p={{ base: 2, md: 4 }}
               display="flex"
               flexDirection="column"
+              className="mobile-full-width"
             >
               <HStack justify="space-between" mb={2}>
-                <Text fontSize="lg" fontWeight="semibold">Command Interface</Text>
-                <HStack>
+                <Text fontSize={{ base: "md", md: "lg" }} fontWeight="semibold">Command Interface</Text>
+                <HStack spacing={{ base: 1, md: 2 }} className="mobile-gap-1">
                   <FormControl display="flex" alignItems="center" width="auto">
-                    <FormLabel htmlFor="chat-mode" mb="0" fontSize="xs">
+                    <FormLabel htmlFor="chat-mode" mb="0" fontSize={{ base: "xs", md: "sm" }}>
                       Chat Mode
                     </FormLabel>
                     <Switch 
@@ -1485,31 +1313,11 @@ export default function Home() {
                               color={colors.text}
                               borderColor="whiteAlpha.300"
                             >
-                              {/* Group OpenAI models */}
-                              <optgroup label="OpenAI Models" style={{backgroundColor: colors.dark, color: "gray"}}>
-                                {availableModels
-                                  .filter(model => !model.startsWith('grok'))
-                                  .map((model) => (
-                                    <option key={model} value={model} style={{backgroundColor: colors.dark, color: colors.text}}>
-                                      {model}
-                                    </option>
-                                  ))
-                                }
-                              </optgroup>
-                              
-                              {/* Group xAI models if available */}
-                              {availableModels.some(model => model.startsWith('grok')) && (
-                                <optgroup label="xAI Models" style={{backgroundColor: colors.dark, color: "gray"}}>
-                                  {availableModels
-                                    .filter(model => model.startsWith('grok'))
-                                    .map((model) => (
-                                      <option key={model} value={model} style={{backgroundColor: colors.dark, color: colors.text}}>
-                                        {model === 'grok-2-1212' ? 'Grok-2' : model}
-                                      </option>
-                                    ))
-                                  }
-                                </optgroup>
-                              )}
+                              {availableModels.map((model) => (
+                                <option key={model} value={model} style={{backgroundColor: colors.dark, color: colors.text}}>
+                                  {model}
+                                </option>
+                              ))}
                             </Select>
                           </Box>
                         </>
@@ -1524,6 +1332,7 @@ export default function Home() {
                 flex="1" 
                 overflowY="auto" 
                 mb={4}
+                className="mobile-scroll-container"
                 css={{
                   '&::-webkit-scrollbar': {
                     width: '4px',
@@ -1542,13 +1351,14 @@ export default function Home() {
                     <Box 
                       key={index}
                       alignSelf={message.role === 'user' ? 'flex-end' : 'flex-start'}
-                      maxW="90%"
+                      maxW={{ base: "95%", md: "90%" }}
                       bg={message.role === 'user' ? colors.primary : colors.dark}
                       color={colors.text}
-                      p={3}
+                      p={{ base: 2, md: 3 }}
                       borderRadius="lg"
                       borderTopRightRadius={message.role === 'user' ? 0 : 'lg'}
                       borderTopLeftRadius={message.role === 'user' ? 'lg' : 0}
+                      className="mobile-padding"
                     >
                       {renderMessageContent(message)}
                     </Box>
@@ -1556,12 +1366,13 @@ export default function Home() {
                   {isGeneratingTweet && (
                     <Box 
                       alignSelf="flex-start"
-                      maxW="90%"
+                      maxW={{ base: "95%", md: "90%" }}
                       bg={colors.dark}
                       color={colors.text}
-                      p={3}
+                      p={{ base: 2, md: 3 }}
                       borderRadius="lg"
                       borderTopLeftRadius={0}
+                      className="mobile-padding"
                     >
                       <HStack>
                         <Spinner size="sm" color={colors.secondary} />
@@ -1582,6 +1393,7 @@ export default function Home() {
                   bg="whiteAlpha.100"
                   border="1px solid"
                   borderColor="whiteAlpha.300"
+                  size={{ base: "sm", md: "md" }}
                   _focus={{
                     borderColor: colors.primary,
                     boxShadow: `0 0 0 1px ${colors.primary}`
@@ -1599,34 +1411,36 @@ export default function Home() {
                   onClick={handleSendMessage}
                   isLoading={isGeneratingTweet}
                   colorScheme="purple"
+                  size={{ base: "sm", md: "md" }}
                 />
               </HStack>
             </Box>
             
             {/* Right panel - Tweet Preview & Controls */}
             <Box 
-              w="50%" 
+              w={{ base: "100%", md: "50%" }} 
               bg={colors.card} 
               borderRadius="lg" 
-              p={4}
+              p={{ base: 2, md: 4 }}
               display="flex"
               flexDirection="column"
+              className="mobile-full-width"
             >
-              <Tabs variant="soft-rounded" colorScheme="purple" size="sm">
-                <TabList>
-                  <Tab>Tweet Preview</Tab>
-                  <Tab>Image Generator</Tab>
-                  <Tab>Thread View</Tab>
-                  <Tab>Tweet History</Tab>
-                  <Tab>Cloudflare Gallery</Tab>
+              <Tabs variant="soft-rounded" colorScheme="purple" size={{ base: "xs", md: "sm" }}>
+                <TabList className="mobile-gap-1">
+                  <Tab>Tweet</Tab>
+                  <Tab>Image</Tab>
+                  <Tab>Thread</Tab>
+                  <Tab>History</Tab>
+                  <Tab>Gallery</Tab>
                 </TabList>
                 
                 <TabPanels flex="1">
                   {/* Tweet Preview Tab */}
-                  <TabPanel h="100%">
+                  <TabPanel h="100%" p={{ base: 2, md: 4 }} className="mobile-padding">
                     <VStack spacing={4} align="stretch" h="100%">
                       <HStack justify="space-between">
-                        <Text fontSize="lg" fontWeight="semibold">Tweet Preview</Text>
+                        <Text fontSize={{ base: "md", md: "lg" }} fontWeight="semibold">Tweet Preview</Text>
                         <Badge 
                           colorScheme={
                             characterCount > 260 ? "red" : 
@@ -1644,7 +1458,7 @@ export default function Home() {
                         border="1px solid" 
                         borderColor="whiteAlpha.300" 
                         borderRadius="md" 
-                        p={4}
+                        p={{ base: 2, md: 4 }}
                         bg="blackAlpha.400"
                         display="flex"
                         flexDirection="column"
@@ -1764,46 +1578,53 @@ export default function Home() {
                           overflow="hidden"
                           borderWidth="1px"
                           borderColor="whiteAlpha.300"
+                          className="image-card"
                         >
-                          <Image 
+                          <ChakraImage 
                             src={imageUrl} 
                             alt="Generated image" 
                             width="100%" 
                             height="auto"
+                            maxHeight="300px"
+                            objectFit="contain"
                           />
                           
-                          <HStack justify="space-between" p={2} bg="blackAlpha.300">
-                            <Button
-                              size="sm"
-                              leftIcon={<CheckIcon />}
-                              onClick={() => {
-                                // Add to generated images
-                                setGeneratedImages([
-                                  ...generatedImages,
-                                  { url: imageUrl, timestamp: new Date().toISOString(), model: imageModel }
-                                ]);
-                                
-                                // Set the image for the tweet
-                                setImageUrl(imageUrl);
-                                
-                                toast({
-                                  title: 'Image added to tweet',
-                                  status: 'success',
-                                  duration: 2000,
-                                  isClosable: true,
-                                });
-                              }}
-                            >
-                              Use in Tweet
-                            </Button>
+                          <Box p={2} bg="blackAlpha.300" className="button-container" width="100%">
+                            <Flex className="gallery-buttons" width="100%" mb={2}>
+                              <Button
+                                size="sm"
+                                leftIcon={<CheckIcon />}
+                                colorScheme="blue"
+                                onClick={() => {
+                                  // Add to generated images
+                                  setGeneratedImages([
+                                    ...generatedImages,
+                                    { url: imageUrl, timestamp: new Date().toISOString(), model: imageModel }
+                                  ]);
+                                  
+                                  // Set the image for the tweet
+                                  setImageUrl(imageUrl);
+                                  
+                                  toast({
+                                    title: 'Image added to tweet',
+                                    status: 'success',
+                                    duration: 2000,
+                                    isClosable: true,
+                                  });
+                                }}
+                                flex="1"
+                              >
+                                Use in Tweet
+                              </Button>
+                            </Flex>
                             
-                            <HStack>
+                            <Flex className="gallery-buttons" width="100%" mb={2}>
                               <Select
                                 size="sm"
                                 value={cloudflareExpiration}
                                 onChange={(e) => setCloudflareExpiration(e.target.value)}
-                                width="120px"
-                                mr={2}
+                                mr={{ base: 0, md: 2 }}
+                                flex={{ base: "1", md: "0 0 120px" }}
                               >
                                 <option value="never">Never expire</option>
                                 <option value="24h">24 hours</option>
@@ -1815,20 +1636,12 @@ export default function Home() {
                                 leftIcon={<AttachmentIcon />}
                                 colorScheme="blue"
                                 onClick={handleCloudflareUpload}
+                                flex="1"
                               >
                                 Save to Cloudflare
                               </Button>
-                              
-                              <Button
-                                size="sm"
-                                leftIcon={<CloseIcon />}
-                                variant="outline"
-                                onClick={() => setImageUrl(null)}
-                              >
-                                Remove
-                              </Button>
-                            </HStack>
-                          </HStack>
+                            </Flex>
+                          </Box>
                         </Box>
                       )}
                       
@@ -1840,79 +1653,71 @@ export default function Home() {
                             {generatedImages.map((image, index) => (
                               <Box 
                                 key={index}
-                                position="relative" 
                                 borderRadius="md" 
                                 overflow="hidden"
-                                width="150px"
-                                height="150px"
                                 border="1px solid"
-                                borderColor="whiteAlpha.300"
+                                borderColor={imageUrl === image.url ? "brand.primary" : "whiteAlpha.200"}
+                                bg="blackAlpha.400"
+                                className="image-card"
                               >
-                                <Image 
+                                <ChakraImage 
                                   src={image.url} 
                                   alt={`Generated image ${index}`}
                                   width="100%"
-                                  height="100%"
+                                  height="150px"
                                   objectFit="cover"
+                                  fallback={<Box height="150px" bg="blackAlpha.300" display="flex" alignItems="center" justifyContent="center"><Text>Loading...</Text></Box>}
                                 />
-                                
-                                <HStack 
-                                  position="absolute" 
-                                  top={1} 
-                                  right={1}
-                                  zIndex={3}
-                                >
-                                  <Tooltip label="Use this image">
-                                    <IconButton
-                                      aria-label="Use this image"
-                                      icon={<CheckIcon />}
-                                      size="xs"
-                                      colorScheme="green"
+                                <Box p={2} bg="blackAlpha.400" className="button-container" width="100%">
+                                  <Flex className="gallery-buttons" width="100%">
+                                    <Button
+                                      size="sm"
+                                      leftIcon={imageUrl === image.url ? <CloseIcon /> : <ViewIcon />}
+                                      colorScheme={imageUrl === image.url ? "purple" : "blue"}
                                       onClick={() => {
-                                        setImageUrl(image.url);
-                                        toast({
-                                          title: 'Image selected',
-                                          description: 'Image set as current image',
-                                          status: 'success',
-                                          duration: 2000,
-                                          isClosable: true,
-                                        });
+                                        if (imageUrl === image.url) {
+                                          setImageUrl(null);
+                                          toast({
+                                            title: 'Image removed',
+                                            status: 'info',
+                                            duration: 2000,
+                                            isClosable: true,
+                                          });
+                                        } else {
+                                          setImageUrl(image.url);
+                                          toast({
+                                            title: 'Image selected',
+                                            status: 'success',
+                                            duration: 2000,
+                                            isClosable: true,
+                                          });
+                                        }
                                       }}
-                                    />
-                                  </Tooltip>
-                                  
-                                  <Tooltip label="Remove">
-                                    <IconButton
-                                      aria-label="Remove image"
-                                      icon={<CloseIcon />}
-                                      size="xs"
+                                      flex="1"
+                                      mr={{ base: 0, md: 1 }}
+                                      mb={{ base: 2, md: 0 }}
+                                    >
+                                      {imageUrl === image.url ? "Remove" : "Use"}
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      leftIcon={<DeleteIcon />}
                                       colorScheme="red"
+                                      variant="outline"
                                       onClick={() => {
-                                        // Remove from generated images
-                                        const newGeneratedImages = [...generatedImages];
-                                        newGeneratedImages.splice(index, 1);
-                                        setGeneratedImages(newGeneratedImages);
+                                        const newImages = [...generatedImages];
+                                        newImages.splice(index, 1);
+                                        setGeneratedImages(newImages);
+                                        if (imageUrl === image.url) {
+                                          setImageUrl(null);
+                                        }
                                       }}
-                                    />
-                                  </Tooltip>
-                                </HStack>
-                                
-                                <Box
-                                  position="absolute" 
-                                  bottom={0} 
-                                  left={0} 
-                                  right={0}
-                                  bg="blackAlpha.700"
-                                  p={1}
-                                >
-                                  <Text fontSize="xs">
-                                    {new Date(image.timestamp).toLocaleTimeString()}
-                                  </Text>
-                                  {image.model && (
-                                    <Text fontSize="xs" color="whiteAlpha.700">
-                                      {image.model.startsWith('grok') ? 'Grok' : 'DALL-E'}
-                                    </Text>
-                                  )}
+                                      flex="1"
+                                      ml={{ base: 0, md: 1 }}
+                                    >
+                                      Delete
+                                    </Button>
+                                  </Flex>
                                 </Box>
                               </Box>
                             ))}
@@ -2172,7 +1977,7 @@ export default function Home() {
                                           border="1px solid"
                                           borderColor="whiteAlpha.300"
                                         >
-                                          <Image 
+                                          <ChakraImage 
                                             src={image.url} 
                                             alt={`Generated image ${imgIndex}`}
                                             width="100%"
@@ -2194,7 +1999,7 @@ export default function Home() {
                                           border="1px solid"
                                           borderColor="whiteAlpha.300"
                                         >
-                                          <Image 
+                                          <ChakraImage 
                                             src={image.url} 
                                             alt={`Cloudflare image ${image.id}`}
                                             width="100%"
@@ -2296,7 +2101,7 @@ export default function Home() {
                               border="1px solid"
                               borderColor="whiteAlpha.300"
                             >
-                              <Image 
+                              <ChakraImage 
                                 src={image.url} 
                                 alt={`Generated image ${imgIndex}`}
                                 width="100%"
@@ -2321,7 +2126,7 @@ export default function Home() {
                               border="1px solid"
                               borderColor="whiteAlpha.300"
                             >
-                              <Image 
+                              <ChakraImage 
                                 src={image.url} 
                                 alt={`Cloudflare image ${image.id}`}
                                 width="100%"
@@ -2431,20 +2236,72 @@ export default function Home() {
                       ) : (
                         <>
                           <Box maxHeight="calc(100vh - 250px)" overflowY="auto" pr={2}>
-                            <Flex wrap="wrap" gap={4}>
-                              {cloudflareImages.map((image) => (
-                                <CloudflareImageCard
-                                  key={image.id}
-                                  image={image}
-                                  isSelected={imageUrl === image.url}
-                                  primaryColor={colors.primary}
-                                  onSelect={(url) => setValidatedImageUrl(url)}
-                                  onSelectForThread={selectedThreadIndex !== null ? 
-                                    (url) => handleSelectThreadImage(selectedThreadIndex, url) : 
-                                    undefined}
-                                />
+                            <SimpleGrid columns={{ base: 1, sm: 2, md: 3 }} spacing={{ base: 2, md: 4 }}>
+                              {cloudflareImages.map((image, index) => (
+                                <Box 
+                                  key={`${image.id}-${index}`}
+                                  borderRadius="md" 
+                                  overflow="hidden"
+                                  border="1px solid"
+                                  borderColor={imageUrl === image.url ? "brand.primary" : "whiteAlpha.200"}
+                                  bg="blackAlpha.400"
+                                  className="image-card"
+                                >
+                                  <ChakraImage 
+                                    src={image.url} 
+                                    alt={`Cloudflare image ${image.id}`} 
+                                    width="100%" 
+                                    height="150px"
+                                    objectFit="cover"
+                                    fallback={<Box height="150px" bg="blackAlpha.300" display="flex" alignItems="center" justifyContent="center"><Text>Loading...</Text></Box>}
+                                  />
+                                  <Box p={2} bg="blackAlpha.400" className="button-container" width="100%">
+                                    <Flex className="gallery-buttons" width="100%">
+                                      <Button
+                                        size="sm"
+                                        leftIcon={imageUrl === image.url ? <CloseIcon /> : <ViewIcon />}
+                                        colorScheme={imageUrl === image.url ? "purple" : "blue"}
+                                        onClick={() => {
+                                          if (imageUrl === image.url) {
+                                            setImageUrl(null);
+                                            toast({
+                                              title: 'Image removed',
+                                              status: 'info',
+                                              duration: 2000,
+                                              isClosable: true,
+                                            });
+                                          } else {
+                                            setImageUrl(image.url);
+                                            toast({
+                                              title: 'Image selected',
+                                              status: 'success',
+                                              duration: 2000,
+                                              isClosable: true,
+                                            });
+                                          }
+                                        }}
+                                        flex="1"
+                                        mr={{ base: 0, md: 1 }}
+                                        mb={{ base: 2, md: 0 }}
+                                      >
+                                        {imageUrl === image.url ? "Remove" : "Use"}
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        leftIcon={<ExternalLinkIcon />}
+                                        as="a"
+                                        href={image.url}
+                                        target="_blank"
+                                        flex="1"
+                                        ml={{ base: 0, md: 1 }}
+                                      >
+                                        Open
+                                      </Button>
+                                    </Flex>
+                                  </Box>
+                                </Box>
                               ))}
-                            </Flex>
+                            </SimpleGrid>
                           </Box>
                           
                           {cloudflareImagesPagination.has_more && (
