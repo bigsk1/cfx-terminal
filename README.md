@@ -16,6 +16,11 @@ to your cloudflare images gallery.
 - **Cloudflare Image Gallery**: Store and reuse generated images with Cloudflare Images integration
 - **Tweet Management**: View and delete your posted tweets
 
+
+![Timeline](frontend/public/images/timeline.png)
+
+---
+
 ![Thread](frontend/public/images/thread.png)
 
 ## Tech Stack
