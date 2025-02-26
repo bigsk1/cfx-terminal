@@ -26,7 +26,6 @@ import {
   Switch,
   FormControl,
   FormLabel,
-  Checkbox,
   SimpleGrid,
   Image as ChakraImage,
   Menu,
@@ -39,7 +38,6 @@ import {
   CheckIcon,
   CloseIcon,
   DeleteIcon,
-  DownloadIcon,
   ExternalLinkIcon,
   RepeatIcon,
   ViewIcon,
@@ -63,12 +61,6 @@ interface Message {
   imageUrl?: string;
   tweetId?: string;
   threadIds?: string[];
-}
-
-// Define error type
-interface ApiError {
-  message: string;
-  status?: number;
 }
 
 // TweetPreviewImage component
@@ -151,11 +143,9 @@ export default function Home() {
   const [isPosting, setIsPosting] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [characterCount, setCharacterCount] = useState(0);
-  const [textModel, setTextModel] = useState<string>("gpt-4o");
   const [imageModel, setImageModel] = useState<string>('Loading...');
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [selectedModel, setSelectedModel] = useState<string>('');
-  const [selectedImageModel, setSelectedImageModel] = useState<string>('dall-e-3');
   const [isChatMode, setIsChatMode] = useState(false);
   const [postedTweets, setPostedTweets] = useState<Array<{id: string, text: string, timestamp: string, threadIds: string[]}>>([]);
   const [cloudflareImages, setCloudflareImages] = useState<Array<{id: string; url: string; uploaded: string}>>([]);
@@ -174,7 +164,6 @@ export default function Home() {
   const [cloudflareExpiration, setCloudflareExpiration] = useState<string>('never');
   const [videoPreview, setVideoPreview] = useState<{ tweetIndex: number; url: string } | null>(null);
   const [generatedImages, setGeneratedImages] = useState<Array<{url: string; timestamp: string; model: string}>>([]);
-  const [xaiAvailable, setXaiAvailable] = useState<boolean>(false);
 
   // Load chat history from localStorage on component mount
   useEffect(() => {
@@ -214,24 +203,18 @@ export default function Home() {
         const response = await fetch('/api/model-info');
         if (response.ok) {
           const data = await response.json();
-          setTextModel(data.text_model);
           setImageModel(data.image_model);
           setAvailableModels(data.available_models || []);
-          setXaiAvailable(data.xai_available || false);
           
           // Use the default model from the API if available
           if (data.default_model) {
             setSelectedModel(data.default_model);
           } else {
-            setSelectedModel(data.text_model); // Fallback to text_model
+            setSelectedModel(data.image_model); // Fallback to image_model
           }
-          
-          // Set default image model
-          setSelectedImageModel(data.image_model);
           
           // Log available models for debugging
           console.log('Available models:', data.available_models);
-          console.log('xAI available:', data.xai_available);
         }
       } catch (error: unknown) {
         console.error('Error fetching model info:', error);
@@ -638,12 +621,6 @@ export default function Home() {
       };
       setMessages(prev => [...prev, postMessage]);
       
-      // Prepare thread data with images
-      const threadData = threads.map((text, index) => ({
-        text,
-        image_url: threadImages[index]
-      }));
-      
       const response = await fetch('/api/post-tweet', {
         method: 'POST',
         headers: {
@@ -972,8 +949,8 @@ export default function Home() {
     });
   };
 
-  // Set image URL with validation
-  const setValidatedImageUrl = async (url: string) => {
+  // Renamed function that's actually used in the code
+  const handleImageSelection = async (url: string) => {
     // If the image is already selected, unselect it
     if (imageUrl === url) {
       setImageUrl(null);
@@ -1043,7 +1020,7 @@ export default function Home() {
           isClosable: true,
         });
       }
-    } catch (error: unknown) {
+    } catch (err) {
       // Close the loading toast
       toast.close(loadingToast);
       
@@ -1054,6 +1031,8 @@ export default function Home() {
         duration: 3000,
         isClosable: true,
       });
+      
+      console.error('Error validating image:', err);
     }
   };
 
@@ -1154,93 +1133,6 @@ export default function Home() {
     width: "100%",
     height: "100%",
     border: "none"
-  };
-
-  // Improved function to split text into tweet-sized chunks
-  const splitIntoThreads = (text: string, limit: number = 280): string[] => {
-    // If text is already short enough, return it as a single tweet
-    if (text.length <= limit) {
-      return [text];
-    }
-    
-    // Split by paragraphs first (double newlines)
-    const paragraphs = text.split(/\n\s*\n/);
-    const threads: string[] = [];
-    let currentThread = '';
-    
-    for (const paragraph of paragraphs) {
-      // If paragraph fits in current thread, add it
-      if (currentThread.length + paragraph.length + (currentThread ? 2 : 0) <= limit) {
-        currentThread = currentThread ? `${currentThread}\n\n${paragraph}` : paragraph;
-      } 
-      // If paragraph alone is too long, split by sentences
-      else if (paragraph.length > limit) {
-        // If we have content in the current thread, push it
-        if (currentThread) {
-          threads.push(currentThread);
-          currentThread = '';
-        }
-        
-        // Split by sentences
-        const sentences = paragraph.match(/[^.!?]+[.!?]+/g) || [paragraph];
-        let currentSentenceGroup = '';
-        
-        for (const sentence of sentences) {
-          // If sentence fits in current group, add it
-          if (currentSentenceGroup.length + sentence.length <= limit) {
-            currentSentenceGroup += sentence;
-          } 
-          // If sentence alone is too long, split by words
-          else if (sentence.length > limit) {
-            // If we have content in the current group, push it
-            if (currentSentenceGroup) {
-              threads.push(currentSentenceGroup);
-              currentSentenceGroup = '';
-            }
-            
-            // Split by words
-            const words = sentence.split(/\s+/);
-            let currentWordGroup = '';
-            
-            for (const word of words) {
-              if (currentWordGroup.length + word.length + (currentWordGroup ? 1 : 0) <= limit) {
-                currentWordGroup = currentWordGroup ? `${currentWordGroup} ${word}` : word;
-              } else {
-                threads.push(currentWordGroup);
-                currentWordGroup = word;
-              }
-            }
-            
-            // Add any remaining words
-            if (currentWordGroup) {
-              currentSentenceGroup = currentWordGroup;
-            }
-          } 
-          // Start a new sentence group
-          else {
-            threads.push(currentSentenceGroup);
-            currentSentenceGroup = sentence;
-          }
-        }
-        
-        // Add any remaining sentences
-        if (currentSentenceGroup) {
-          currentThread = currentSentenceGroup;
-        }
-      } 
-      // Start a new thread with this paragraph
-      else {
-        threads.push(currentThread);
-        currentThread = paragraph;
-      }
-    }
-    
-    // Add the last thread if there is one
-    if (currentThread) {
-      threads.push(currentThread);
-    }
-    
-    return threads;
   };
 
   return (
@@ -1625,6 +1517,11 @@ export default function Home() {
                                 onChange={(e) => setCloudflareExpiration(e.target.value)}
                                 mr={{ base: 0, md: 2 }}
                                 flex={{ base: "1", md: "0 0 120px" }}
+                                bg="blackAlpha.500"
+                                color="white"
+                                borderColor="whiteAlpha.300"
+                                _hover={{ borderColor: "purple.500" }}
+                                _focus={{ borderColor: "purple.500", boxShadow: "0 0 0 1px var(--chakra-colors-purple-500)" }}
                               >
                                 <option value="never">Never expire</option>
                                 <option value="24h">24 hours</option>
@@ -1674,25 +1571,7 @@ export default function Home() {
                                       size="sm"
                                       leftIcon={imageUrl === image.url ? <CloseIcon /> : <ViewIcon />}
                                       colorScheme={imageUrl === image.url ? "purple" : "blue"}
-                                      onClick={() => {
-                                        if (imageUrl === image.url) {
-                                          setImageUrl(null);
-                                          toast({
-                                            title: 'Image removed',
-                                            status: 'info',
-                                            duration: 2000,
-                                            isClosable: true,
-                                          });
-                                        } else {
-                                          setImageUrl(image.url);
-                                          toast({
-                                            title: 'Image selected',
-                                            status: 'success',
-                                            duration: 2000,
-                                            isClosable: true,
-                                          });
-                                        }
-                                      }}
+                                      onClick={() => handleImageSelection(image.url)}
                                       flex="1"
                                       mr={{ base: 0, md: 1 }}
                                       mb={{ base: 2, md: 0 }}
@@ -2230,20 +2109,20 @@ export default function Home() {
                         >
                           <Text>No images found in your Cloudflare account.</Text>
                           <Text fontSize="sm" mt={2}>
-                            Generate an image and click "Save to Cloudflare" to add images.
+                            Generate an image and click &quot;Save to Cloudflare&quot; to add images.
                           </Text>
                         </Box>
                       ) : (
                         <>
                           <Box maxHeight="calc(100vh - 250px)" overflowY="auto" pr={2}>
-                            <SimpleGrid columns={{ base: 1, sm: 2, md: 3 }} spacing={{ base: 2, md: 4 }}>
+                            <SimpleGrid className="cloudflare-gallery" spacing={{ base: 3, md: 4 }}>
                               {cloudflareImages.map((image, index) => (
                                 <Box 
                                   key={`${image.id}-${index}`}
                                   borderRadius="md" 
                                   overflow="hidden"
                                   border="1px solid"
-                                  borderColor={imageUrl === image.url ? "brand.primary" : "whiteAlpha.200"}
+                                  borderColor={imageUrl === image.url ? "purple.500" : "whiteAlpha.200"}
                                   bg="blackAlpha.400"
                                   className="image-card"
                                 >
@@ -2251,35 +2130,17 @@ export default function Home() {
                                     src={image.url} 
                                     alt={`Cloudflare image ${image.id}`} 
                                     width="100%" 
-                                    height="150px"
+                                    height="auto"
                                     objectFit="cover"
-                                    fallback={<Box height="150px" bg="blackAlpha.300" display="flex" alignItems="center" justifyContent="center"><Text>Loading...</Text></Box>}
+                                    fallback={<Box height="180px" bg="blackAlpha.300" display="flex" alignItems="center" justifyContent="center"><Text>Loading...</Text></Box>}
                                   />
-                                  <Box p={2} bg="blackAlpha.400" className="button-container" width="100%">
+                                  <Box p={3} bg="blackAlpha.400" className="button-container" width="100%">
                                     <Flex className="gallery-buttons" width="100%">
                                       <Button
                                         size="sm"
                                         leftIcon={imageUrl === image.url ? <CloseIcon /> : <ViewIcon />}
                                         colorScheme={imageUrl === image.url ? "purple" : "blue"}
-                                        onClick={() => {
-                                          if (imageUrl === image.url) {
-                                            setImageUrl(null);
-                                            toast({
-                                              title: 'Image removed',
-                                              status: 'info',
-                                              duration: 2000,
-                                              isClosable: true,
-                                            });
-                                          } else {
-                                            setImageUrl(image.url);
-                                            toast({
-                                              title: 'Image selected',
-                                              status: 'success',
-                                              duration: 2000,
-                                              isClosable: true,
-                                            });
-                                          }
-                                        }}
+                                        onClick={() => handleImageSelection(image.url)}
                                         flex="1"
                                         mr={{ base: 0, md: 1 }}
                                         mb={{ base: 2, md: 0 }}
