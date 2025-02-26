@@ -169,6 +169,7 @@ export default function Home() {
   useEffect(() => {
     const savedMessages = localStorage.getItem('cfx-chat-messages');
     const savedUserName = localStorage.getItem('cfx-user-name');
+    const savedTweets = localStorage.getItem('cfx-tweet-history');
     
     if (savedMessages) {
       try {
@@ -182,12 +183,26 @@ export default function Home() {
     if (savedUserName) {
       setUserName(savedUserName);
     }
+
+    if (savedTweets) {
+      try {
+        const parsedTweets = JSON.parse(savedTweets);
+        setPostedTweets(parsedTweets);
+      } catch (error) {
+        console.error('Error parsing saved tweets:', error);
+      }
+    }
   }, []);
 
   // Save chat history to localStorage whenever it changes
   useEffect(() => {
     localStorage.setItem('cfx-chat-messages', JSON.stringify(messages));
   }, [messages]);
+
+  // Save tweet history to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem('cfx-tweet-history', JSON.stringify(postedTweets));
+  }, [postedTweets]);
 
   // Save username to localStorage whenever it changes
   useEffect(() => {
@@ -243,6 +258,19 @@ export default function Home() {
     toast({
       title: 'Chat cleared',
       description: 'Your chat history has been cleared',
+      status: 'info',
+      duration: 3000,
+      isClosable: true,
+    });
+  };
+
+  // Clear tweet history
+  const handleClearTweetHistory = () => {
+    setPostedTweets([]);
+    
+    toast({
+      title: 'Tweet history cleared',
+      description: 'Your tweet history has been cleared',
       status: 'info',
       duration: 3000,
       isClosable: true,
@@ -2022,7 +2050,18 @@ export default function Home() {
                   {/* Tweet History Tab */}
                   <TabPanel>
                     <VStack spacing={4} align="stretch">
-                      <Text fontSize="lg" fontWeight="semibold">Tweet History</Text>
+                      <HStack justify="space-between">
+                        <Text fontSize="lg" fontWeight="semibold">Tweet History</Text>
+                        <Button 
+                          size="xs" 
+                          leftIcon={<DeleteIcon />} 
+                          colorScheme="red"
+                          variant="outline"
+                          onClick={handleClearTweetHistory}
+                        >
+                          Clear History
+                        </Button>
+                      </HStack>
                       
                       {postedTweets.length === 0 ? (
                         <Box 
