@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 import requests
 from requests_oauthlib import OAuth1
 from openai import OpenAI
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Dict, Any
 import base64
 import json
 import re
@@ -16,6 +16,7 @@ from pathlib import Path
 import logging
 import time
 import tweepy
+from datetime import datetime, timedelta
 
 # Configure logging
 logging.basicConfig(
@@ -76,6 +77,27 @@ cloudflare_api_token = os.getenv("CLOUDFLARE_API_TOKEN")
 # Create a directory for temporary images if it doesn't exist
 TEMP_IMAGE_DIR = Path("temp_images")
 TEMP_IMAGE_DIR.mkdir(exist_ok=True)
+
+# Twitter API cache and rate limit tracking
+twitter_cache = {
+    "home_timeline": {
+        "data": None,
+        "last_updated": None,
+        "expires_at": None
+    }
+}
+
+twitter_rate_limits = {
+    "home_timeline": {
+        "limit": 15,  # Default limit per 15 minutes
+        "remaining": 15,
+        "reset_time": None,
+        "last_checked": None
+    }
+}
+
+# Cache expiration time (in seconds)
+TIMELINE_CACHE_EXPIRY = 300  # 5 minutes cache for timeline
 
 # Data models
 class TweetRequest(BaseModel):
@@ -864,6 +886,8 @@ def upload_to_cloudflare_helper(file_data, filename="image", expiration="24h"):
 @app.get("/api/twitter/home-timeline")
 async def get_home_timeline(count: int = 20, cursor: str = None):
     """Get the user's Twitter home timeline"""
+    global twitter_cache, twitter_rate_limits
+    
     logger.info(f"Fetching Twitter home timeline")
     logger.info(f"Parameters: count={count}, cursor={cursor}")
     
@@ -880,6 +904,70 @@ async def get_home_timeline(count: int = 20, cursor: str = None):
             detail="Twitter API credentials not configured"
         )
     
+    # Check if we're rate limited
+    rate_limit_info = twitter_rate_limits["home_timeline"]
+    current_time = time.time()
+    
+    # If we have rate limit info and we're still limited
+    if (rate_limit_info["reset_time"] and 
+        current_time < rate_limit_info["reset_time"] and 
+        rate_limit_info["remaining"] <= 0):
+        
+        # Calculate time until reset
+        seconds_until_reset = int(rate_limit_info["reset_time"] - current_time)
+        minutes_until_reset = max(1, int(seconds_until_reset / 60))
+        
+        logger.info(f"Rate limited. Reset in {minutes_until_reset} minutes. Using cached data if available.")
+        
+        # If we have cached data, return it with a warning
+        if twitter_cache["home_timeline"]["data"]:
+            cached_data = twitter_cache["home_timeline"]["data"]
+            # Add a warning to the response
+            if "meta" not in cached_data:
+                cached_data["meta"] = {}
+            cached_data["meta"]["warning"] = f"Rate limit exceeded. Reset in {minutes_until_reset} minutes. Showing cached data."
+            cached_data["meta"]["cached"] = True
+            cached_data["meta"]["cache_time"] = twitter_cache["home_timeline"]["last_updated"]
+            
+            # Add rate limit info to the response
+            cached_data["meta"]["rate_limit"] = {
+                "limit": rate_limit_info["limit"],
+                "remaining": rate_limit_info["remaining"],
+                "reset_time": rate_limit_info["reset_time"]
+            }
+            
+            return cached_data
+        
+        # No cached data available
+        raise HTTPException(
+            status_code=429,
+            detail=f"Twitter API rate limit exceeded. Please try again in {minutes_until_reset} minutes."
+        )
+    
+    # Check if we have valid cached data and no cursor (only use cache for first page)
+    cache_data = twitter_cache["home_timeline"]
+    if (not cursor and 
+        cache_data["data"] and 
+        cache_data["expires_at"] and 
+        current_time < cache_data["expires_at"]):
+        
+        logger.info("Returning cached timeline data")
+        cached_data = cache_data["data"]
+        # Add cache info to the response
+        if "meta" not in cached_data:
+            cached_data["meta"] = {}
+        cached_data["meta"]["cached"] = True
+        cached_data["meta"]["cache_time"] = cache_data["last_updated"]
+        
+        # Add rate limit info to the response
+        cached_data["meta"]["rate_limit"] = {
+            "limit": rate_limit_info["limit"],
+            "remaining": rate_limit_info["remaining"],
+            "reset_time": rate_limit_info["reset_time"] if rate_limit_info["reset_time"] else None
+        }
+        
+        return cached_data
+    
     # Initialize Twitter client with OAuth 2.0
     client = tweepy.Client(
         consumer_key=twitter_credentials["consumer_key"],
@@ -894,7 +982,7 @@ async def get_home_timeline(count: int = 20, cursor: str = None):
         "max_results": count,
         "tweet.fields": "created_at,public_metrics,entities,referenced_tweets,attachments",
         "user.fields": "profile_image_url,verified",
-        "media.fields": "url,preview_image_url,type",
+        "media.fields": "url,preview_image_url,type,duration_ms,height,width,alt_text,variants",
         "expansions": "author_id,referenced_tweets.id,referenced_tweets.id.author_id,attachments.media_keys"
     }
     
@@ -935,33 +1023,124 @@ async def get_home_timeline(count: int = 20, cursor: str = None):
             "meta": response.meta
         }
         
+        # Update cache if this is the first page (no cursor)
+        if not cursor:
+            twitter_cache["home_timeline"] = {
+                "data": response_dict,
+                "last_updated": int(current_time),
+                "expires_at": int(current_time) + TIMELINE_CACHE_EXPIRY
+            }
+        
+        # Update rate limit information from headers if available
+        if hasattr(response, "_headers") and response._headers:
+            headers = response._headers
+            if "x-rate-limit-limit" in headers:
+                twitter_rate_limits["home_timeline"]["limit"] = int(headers["x-rate-limit-limit"])
+            if "x-rate-limit-remaining" in headers:
+                twitter_rate_limits["home_timeline"]["remaining"] = int(headers["x-rate-limit-remaining"])
+            if "x-rate-limit-reset" in headers:
+                twitter_rate_limits["home_timeline"]["reset_time"] = int(headers["x-rate-limit-reset"])
+            twitter_rate_limits["home_timeline"]["last_checked"] = int(current_time)
+            
+            logger.info(f"Updated rate limits: {twitter_rate_limits['home_timeline']}")
+            
+            # Add rate limit info to the response
+            if "meta" not in response_dict:
+                response_dict["meta"] = {}
+            response_dict["meta"]["rate_limit"] = {
+                "limit": twitter_rate_limits["home_timeline"]["limit"],
+                "remaining": twitter_rate_limits["home_timeline"]["remaining"],
+                "reset_time": twitter_rate_limits["home_timeline"]["reset_time"]
+            }
+        
         return response_dict
         
     except tweepy.TooManyRequests as e:
         # Handle rate limit exceeded
-        reset_time = getattr(e, 'reset', None)
-        reset_message = f" Reset at {reset_time}" if reset_time else ""
-        logger.error(f"Twitter API rate limit exceeded: {e}{reset_message}")
+        # Try to extract rate limit information from the response
+        rate_limit_info = {}
+        reset_time = None
         
-        # Return a 429 status code with a helpful message
-        raise HTTPException(
-            status_code=429,
-            detail="Twitter API rate limit exceeded. Please try again later."
-        )
+        # Check if we can access the response object
+        if hasattr(e, 'response') and e.response is not None:
+            # Extract rate limit headers
+            headers = e.response.headers
+            rate_limit_info['limit'] = headers.get('x-rate-limit-limit')
+            rate_limit_info['remaining'] = headers.get('x-rate-limit-remaining', '0')
+            rate_limit_info['reset'] = headers.get('x-rate-limit-reset')
+            
+            # Convert reset time to minutes if available
+            if rate_limit_info['reset']:
+                try:
+                    reset_timestamp = int(rate_limit_info['reset'])
+                    current_timestamp = int(time.time())
+                    reset_minutes = max(1, int((reset_timestamp - current_timestamp) / 60))
+                    reset_time = f"{reset_minutes} minute{'s' if reset_minutes != 1 else ''}"
+                    
+                    # Update our rate limit tracking
+                    twitter_rate_limits["home_timeline"]["limit"] = int(rate_limit_info['limit']) if rate_limit_info['limit'] else 15
+                    twitter_rate_limits["home_timeline"]["remaining"] = 0
+                    twitter_rate_limits["home_timeline"]["reset_time"] = reset_timestamp
+                    twitter_rate_limits["home_timeline"]["last_checked"] = current_timestamp
+                    
+                except (ValueError, TypeError):
+                    reset_time = None
+        
+        # Log the rate limit information
+        logger.warning(f"Twitter API rate limit exceeded. Rate limit info: {rate_limit_info}")
+        
+        # If we have cached data, return it with a warning
+        if twitter_cache["home_timeline"]["data"]:
+            cached_data = twitter_cache["home_timeline"]["data"]
+            # Add a warning to the response
+            if "meta" not in cached_data:
+                cached_data["meta"] = {}
+            cached_data["meta"]["warning"] = f"Rate limit exceeded. Reset in {reset_time if reset_time else 'unknown time'}. Showing cached data."
+            cached_data["meta"]["cached"] = True
+            cached_data["meta"]["cache_time"] = twitter_cache["home_timeline"]["last_updated"]
+            
+            # Add rate limit info to the response
+            cached_data["meta"]["rate_limit"] = {
+                "limit": int(rate_limit_info['limit']) if rate_limit_info['limit'] else 15,
+                "remaining": 0,
+                "reset_time": int(rate_limit_info['reset']) if rate_limit_info['reset'] else None
+            }
+            
+            return cached_data
+        
+        # No cached data available
+        error_message = f"Twitter API rate limit exceeded. Please try again in {reset_time if reset_time else '15 minutes'}."
+        raise HTTPException(status_code=429, detail=error_message)
+        
     except tweepy.Unauthorized as e:
         # Handle unauthorized access
-        logger.error(f"Twitter API unauthorized access: {e}")
-        raise HTTPException(
-            status_code=401,
-            detail="Unauthorized access to Twitter API. Please check your credentials."
-        )
+        logger.error(f"Twitter API unauthorized: {str(e)}")
+        raise HTTPException(status_code=401, detail="Twitter API unauthorized. Please check your credentials.")
+        
     except Exception as e:
         # Handle other exceptions
-        logger.error(f"Error fetching home timeline: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error fetching home timeline: {str(e)}"
-        )
+        logger.error(f"Error fetching Twitter timeline: {str(e)}")
+        
+        # If we have cached data, return it with a warning
+        if twitter_cache["home_timeline"]["data"]:
+            cached_data = twitter_cache["home_timeline"]["data"]
+            # Add a warning to the response
+            if "meta" not in cached_data:
+                cached_data["meta"] = {}
+            cached_data["meta"]["warning"] = f"Error fetching timeline: {str(e)}. Showing cached data."
+            cached_data["meta"]["cached"] = True
+            cached_data["meta"]["cache_time"] = twitter_cache["home_timeline"]["last_updated"]
+            
+            # Add rate limit info to the response
+            cached_data["meta"]["rate_limit"] = {
+                "limit": twitter_rate_limits["home_timeline"]["limit"],
+                "remaining": twitter_rate_limits["home_timeline"]["remaining"],
+                "reset_time": twitter_rate_limits["home_timeline"]["reset_time"] if twitter_rate_limits["home_timeline"]["reset_time"] else None
+            }
+            
+            return cached_data
+            
+        raise HTTPException(status_code=500, detail=f"Error fetching Twitter timeline: {str(e)}")
 
 @app.post("/api/twitter/post-tweet")
 async def post_tweet(

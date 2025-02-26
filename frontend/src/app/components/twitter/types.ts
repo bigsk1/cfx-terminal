@@ -9,6 +9,18 @@ export interface TweetAuthor {
 export interface TweetMedia {
   type: string;
   url: string;
+  preview_image_url?: string;
+  media_key?: string;
+  alt_text?: string;
+  duration_ms?: number;
+  height?: number;
+  width?: number;
+  content_type?: string;
+  variants?: Array<{
+    bit_rate?: number;
+    content_type: string;
+    url: string;
+  }>;
 }
 
 export interface TweetMetrics {

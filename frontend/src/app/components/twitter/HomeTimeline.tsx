@@ -20,6 +20,7 @@ import {
   MenuButton,
   MenuList,
   MenuItem,
+  Heading,
 } from '@chakra-ui/react';
 import {
   RepeatIcon,
@@ -28,6 +29,8 @@ import {
   ChevronDownIcon,
   ExternalLinkIcon,
   AttachmentIcon,
+  CloseIcon,
+  InfoIcon,
 } from '@chakra-ui/icons';
 import { Tweet } from './types';
 import TweetCard from './TweetCard';
@@ -38,6 +41,13 @@ interface HomeTimelineProps {
   isVisible?: boolean;
 }
 
+// Add rate limit info interface
+interface RateLimitInfo {
+  limit: number;
+  remaining: number;
+  resetTime: number;
+}
+
 const HomeTimeline: React.FC<HomeTimelineProps> = ({ onClose, isVisible = true }) => {
   const [tweets, setTweets] = useState<Tweet[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -46,6 +56,13 @@ const HomeTimeline: React.FC<HomeTimelineProps> = ({ onClose, isVisible = true }
   const [hasMore, setHasMore] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [cacheInfo, setCacheInfo] = useState<{
+    isCached: boolean;
+    cacheTime?: number;
+    warning?: string;
+  } | null>(null);
+  // Add rate limit state
+  const [rateLimitInfo, setRateLimitInfo] = useState<RateLimitInfo | null>(null);
   const toast = useToast();
 
   // Function to fetch the home timeline
@@ -54,6 +71,7 @@ const HomeTimeline: React.FC<HomeTimelineProps> = ({ onClose, isVisible = true }
       const loadingState = append ? setIsLoadingMore : setIsLoading;
       loadingState(true);
       setError(null);
+      setCacheInfo(null);
 
       // Build the URL with query parameters
       let url = '/api/twitter/home-timeline?count=20';
@@ -80,7 +98,14 @@ const HomeTimeline: React.FC<HomeTimelineProps> = ({ onClose, isVisible = true }
         
         // Check for rate limit errors
         if (response.status === 429) {
-          errorMessage = 'Twitter API rate limit exceeded. Please try again later.';
+          try {
+            // Try to parse error as JSON if possible
+            const errorData = JSON.parse(errorText);
+            errorMessage = errorData.detail || 'Twitter API rate limit exceeded. Please try again later.';
+          } catch (jsonError) {
+            // If JSON parsing fails, use the text content
+            errorMessage = errorText || 'Twitter API rate limit exceeded. Please try again later.';
+          }
         } else {
           try {
             // Try to parse error as JSON if possible
@@ -101,6 +126,41 @@ const HomeTimeline: React.FC<HomeTimelineProps> = ({ onClose, isVisible = true }
       // Check if data has the expected structure
       if (!data || typeof data !== 'object') {
         throw new Error('Invalid response format from server');
+      }
+      
+      // Check for cache info and warnings
+      if (data.meta) {
+        if (data.meta.cached || data.meta.warning) {
+          setCacheInfo({
+            isCached: !!data.meta.cached,
+            cacheTime: data.meta.cache_time,
+            warning: data.meta.warning
+          });
+          
+          // Show a toast for cached data
+          if (data.meta.cached && !append) {
+            const cacheTime = data.meta.cache_time 
+              ? new Date(data.meta.cache_time * 1000).toLocaleTimeString() 
+              : 'unknown time';
+            
+            toast({
+              title: 'Using cached data',
+              description: data.meta.warning || `Showing cached data from ${cacheTime}`,
+              status: 'info',
+              duration: 5000,
+              isClosable: true,
+            });
+          }
+        }
+      }
+      
+      // Extract rate limit info from the response if available
+      if (data.meta && data.meta.rate_limit) {
+        setRateLimitInfo({
+          limit: data.meta.rate_limit.limit || 0,
+          remaining: data.meta.rate_limit.remaining || 0,
+          resetTime: data.meta.rate_limit.reset_time || 0
+        });
       }
       
       // Process the tweets
@@ -175,10 +235,40 @@ const HomeTimeline: React.FC<HomeTimelineProps> = ({ onClose, isVisible = true }
       const media = mediaKeys
         .map((key: string) => mediaMap.get(key))
         .filter(Boolean)
-        .map((m: any) => ({
-          type: m.type,
-          url: m.url || m.preview_image_url,
-        }));
+        .map((m: any) => {
+          // Enhanced media processing
+          const mediaItem = {
+            type: m.type,
+            url: m.url || m.preview_image_url,
+            preview_image_url: m.preview_image_url,
+            media_key: m.media_key,
+            alt_text: m.alt_text,
+            duration_ms: m.duration_ms,
+            height: m.height,
+            width: m.width,
+            variants: m.variants || []
+          };
+          
+          // For videos, try to get the actual video URL if available
+          if (m.type === 'video' && m.variants && m.variants.length > 0) {
+            // Sort variants by bitrate (highest first) and prefer mp4
+            const sortedVariants = [...m.variants].sort((a, b) => {
+              // Prefer mp4 format
+              if (a.content_type === 'video/mp4' && b.content_type !== 'video/mp4') return -1;
+              if (a.content_type !== 'video/mp4' && b.content_type === 'video/mp4') return 1;
+              // Then sort by bitrate (highest first)
+              return (b.bit_rate || 0) - (a.bit_rate || 0);
+            });
+            
+            // Use the best variant URL if available
+            if (sortedVariants.length > 0 && sortedVariants[0].url) {
+              mediaItem.url = sortedVariants[0].url;
+              mediaItem.content_type = sortedVariants[0].content_type;
+            }
+          }
+          
+          return mediaItem;
+        });
       
       // Process referenced tweets (retweets, quotes, replies)
       const referencedTweets = tweet.referenced_tweets || [];
@@ -218,10 +308,40 @@ const HomeTimeline: React.FC<HomeTimelineProps> = ({ onClose, isVisible = true }
         const quotedMedia = quotedMediaKeys
           .map((key: string) => mediaMap.get(key))
           .filter(Boolean)
-          .map((m: any) => ({
-            type: m.type,
-            url: m.url || m.preview_image_url,
-          }));
+          .map((m: any) => {
+            // Enhanced media processing for quoted tweets
+            const mediaItem = {
+              type: m.type,
+              url: m.url || m.preview_image_url,
+              preview_image_url: m.preview_image_url,
+              media_key: m.media_key,
+              alt_text: m.alt_text,
+              duration_ms: m.duration_ms,
+              height: m.height,
+              width: m.width,
+              variants: m.variants || []
+            };
+            
+            // For videos, try to get the actual video URL if available
+            if (m.type === 'video' && m.variants && m.variants.length > 0) {
+              // Sort variants by bitrate (highest first) and prefer mp4
+              const sortedVariants = [...m.variants].sort((a, b) => {
+                // Prefer mp4 format
+                if (a.content_type === 'video/mp4' && b.content_type !== 'video/mp4') return -1;
+                if (a.content_type !== 'video/mp4' && b.content_type === 'video/mp4') return 1;
+                // Then sort by bitrate (highest first)
+                return (b.bit_rate || 0) - (a.bit_rate || 0);
+              });
+              
+              // Use the best variant URL if available
+              if (sortedVariants.length > 0 && sortedVariants[0].url) {
+                mediaItem.url = sortedVariants[0].url;
+                mediaItem.content_type = sortedVariants[0].content_type;
+              }
+            }
+            
+            return mediaItem;
+          });
         
         quotedTweetData = {
           id: quotedTweet.id,
@@ -359,6 +479,40 @@ const HomeTimeline: React.FC<HomeTimelineProps> = ({ onClose, isVisible = true }
     }
   }, [fetchHomeTimeline, refreshKey, isVisible]);
 
+  // Format cache time for display
+  const formatCacheTime = (timestamp?: number) => {
+    if (!timestamp) return 'unknown time';
+    
+    const cacheDate = new Date(timestamp * 1000);
+    const now = new Date();
+    const diffMinutes = Math.floor((now.getTime() - cacheDate.getTime()) / (1000 * 60));
+    
+    if (diffMinutes < 1) {
+      return 'just now';
+    } else if (diffMinutes === 1) {
+      return '1 minute ago';
+    } else if (diffMinutes < 60) {
+      return `${diffMinutes} minutes ago`;
+    } else {
+      return cacheDate.toLocaleTimeString();
+    }
+  };
+
+  // Add a function to format the reset time
+  const formatRateLimitReset = () => {
+    if (!rateLimitInfo || !rateLimitInfo.resetTime) return 'Unknown';
+    
+    const now = Math.floor(Date.now() / 1000);
+    const secondsUntilReset = Math.max(0, rateLimitInfo.resetTime - now);
+    
+    if (secondsUntilReset < 60) {
+      return `${secondsUntilReset} seconds`;
+    } else {
+      const minutesUntilReset = Math.ceil(secondsUntilReset / 60);
+      return `${minutesUntilReset} minute${minutesUntilReset !== 1 ? 's' : ''}`;
+    }
+  };
+
   return (
     <Box 
       width="100%" 
@@ -396,6 +550,31 @@ const HomeTimeline: React.FC<HomeTimelineProps> = ({ onClose, isVisible = true }
           </HStack>
         </Flex>
 
+        {/* Cache Info Banner */}
+        {cacheInfo && (
+          <Box 
+            p={2} 
+            bg="blackAlpha.400" 
+            borderBottomWidth="1px" 
+            borderColor="whiteAlpha.200"
+          >
+            <Flex justify="space-between" align="center">
+              <Text fontSize="sm" color="yellow.300">
+                {cacheInfo.warning || `Showing cached data from ${formatCacheTime(cacheInfo.cacheTime)}`}
+              </Text>
+              <Button 
+                size="xs" 
+                leftIcon={<RepeatIcon />} 
+                onClick={refreshTimeline}
+                variant="outline"
+                colorScheme="yellow"
+              >
+                Refresh
+              </Button>
+            </Flex>
+          </Box>
+        )}
+
         {/* Tweet Composer */}
         <Box p={4} borderBottomWidth="1px" borderColor="whiteAlpha.200">
           <TweetComposer onTweetPosted={handleTweetPosted} />
@@ -408,18 +587,43 @@ const HomeTimeline: React.FC<HomeTimelineProps> = ({ onClose, isVisible = true }
               <Spinner size="xl" color="twitter.500" />
             </Flex>
           ) : error ? (
-            <Flex direction="column" justify="center" align="center" height="100%" p={4}>
-              <Text color="red.400" mb={4}>{error}</Text>
-              <Button colorScheme="twitter" onClick={refreshTimeline}>
-                Try Again
-              </Button>
+            <Flex direction="column" justify="center" align="center" height="100%" textAlign="center">
+              <Box 
+                p={6} 
+                borderRadius="md" 
+                bg="blackAlpha.400" 
+                maxW="600px"
+                borderWidth="1px"
+                borderColor="red.500"
+              >
+                <Text fontSize="lg" mb={4} color="red.300">
+                  {error}
+                </Text>
+                
+                {error.includes('rate limit') && (
+                  <>
+                    <Text fontSize="md" mb={4}>
+                      Twitter API has rate limits of 15 requests per 15 minutes for the home timeline.
+                    </Text>
+                    <Text fontSize="sm" mb={4} color="whiteAlpha.700">
+                      You can continue using other features of the application while waiting.
+                    </Text>
+                  </>
+                )}
+                
+                <Button 
+                  onClick={refreshTimeline} 
+                  colorScheme="twitter" 
+                  mt={2}
+                  isDisabled={error.includes('rate limit')}
+                >
+                  {error.includes('rate limit') ? 'Please wait before retrying' : 'Try Again'}
+                </Button>
+              </Box>
             </Flex>
           ) : tweets.length === 0 ? (
-            <Flex direction="column" justify="center" align="center" height="100%" p={4}>
-              <Text mb={4}>No tweets found in your timeline.</Text>
-              <Button colorScheme="twitter" onClick={refreshTimeline}>
-                Refresh
-              </Button>
+            <Flex justify="center" align="center" height="100%">
+              <Text>No tweets found in your timeline</Text>
             </Flex>
           ) : (
             <VStack spacing={4} align="stretch">
@@ -432,16 +636,15 @@ const HomeTimeline: React.FC<HomeTimelineProps> = ({ onClose, isVisible = true }
               ))}
               
               {hasMore && (
-                <Flex justify="center" p={4}>
-                  <Button
-                    onClick={loadMore}
-                    isLoading={isLoadingMore}
-                    colorScheme="twitter"
-                    variant="outline"
-                  >
-                    Load More
-                  </Button>
-                </Flex>
+                <Button 
+                  onClick={loadMore} 
+                  isLoading={isLoadingMore}
+                  width="100%"
+                  variant="outline"
+                  colorScheme="twitter"
+                >
+                  Load More
+                </Button>
               )}
             </VStack>
           )}

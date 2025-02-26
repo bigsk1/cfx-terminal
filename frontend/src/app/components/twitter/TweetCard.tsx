@@ -305,7 +305,7 @@ const TweetCard: React.FC<TweetCardProps> = ({ tweet, onAction }) => {
         {tweet.media && tweet.media.length > 0 && (
           <Box mb={3} borderRadius="md" overflow="hidden">
             {tweet.media.map((item, index) => (
-              <Box key={index} maxH="300px" overflow="hidden" borderRadius="md">
+              <Box key={index} maxH="300px" overflow="hidden" borderRadius="md" position="relative">
                 {item.type === 'photo' ? (
                   <Image 
                     src={item.url} 
@@ -315,22 +315,128 @@ const TweetCard: React.FC<TweetCardProps> = ({ tweet, onAction }) => {
                     width="100%" 
                   />
                 ) : item.type === 'video' ? (
-                  <Box 
-                    as="video" 
-                    controls 
-                    src={item.url} 
-                    maxH="300px" 
-                    width="100%" 
-                    objectFit="cover"
-                  />
+                  // Check if we have a valid video URL or just a preview image
+                  item.url && item.url.includes('video') ? (
+                    <Box 
+                      as="video" 
+                      controls 
+                      src={item.url} 
+                      maxH="300px" 
+                      width="100%" 
+                      objectFit="cover"
+                    />
+                  ) : (
+                    // For pic.x.com links that are likely videos but we only have preview image
+                    <Box position="relative">
+                      <Image 
+                        src={item.url} 
+                        alt="Video preview" 
+                        maxH="300px" 
+                        objectFit="cover" 
+                        width="100%" 
+                      />
+                      <Flex
+                        position="absolute"
+                        top="0"
+                        left="0"
+                        right="0"
+                        bottom="0"
+                        bg="blackAlpha.600"
+                        justifyContent="center"
+                        alignItems="center"
+                        flexDirection="column"
+                      >
+                        <Text color="white" fontWeight="bold" mb={2}>Video content</Text>
+                        <Link 
+                          href={`https://twitter.com/${tweet.author.username}/status/${tweet.id}`}
+                          isExternal
+                          _hover={{ textDecoration: 'none' }}
+                        >
+                          <Button
+                            leftIcon={<ExternalLinkIcon />}
+                            colorScheme="twitter"
+                            size="sm"
+                          >
+                            View on X.com
+                          </Button>
+                        </Link>
+                      </Flex>
+                    </Box>
+                  )
+                ) : item.type === 'animated_gif' ? (
+                  // Handle GIFs - they often come as preview images too
+                  <Box position="relative">
+                    <Image 
+                      src={item.url} 
+                      alt="GIF preview" 
+                      maxH="300px" 
+                      objectFit="cover" 
+                      width="100%" 
+                    />
+                    <Flex
+                      position="absolute"
+                      top="0"
+                      left="0"
+                      right="0"
+                      bottom="0"
+                      bg="blackAlpha.600"
+                      justifyContent="center"
+                      alignItems="center"
+                      flexDirection="column"
+                    >
+                      <Text color="white" fontWeight="bold" mb={2}>GIF content</Text>
+                      <Link 
+                        href={`https://twitter.com/${tweet.author.username}/status/${tweet.id}`}
+                        isExternal
+                        _hover={{ textDecoration: 'none' }}
+                      >
+                        <Button
+                          leftIcon={<ExternalLinkIcon />}
+                          colorScheme="twitter"
+                          size="sm"
+                        >
+                          View on X.com
+                        </Button>
+                      </Link>
+                    </Flex>
+                  </Box>
                 ) : (
-                  <Image 
-                    src={item.url} 
-                    alt="Tweet media" 
-                    maxH="300px" 
-                    objectFit="cover" 
-                    width="100%" 
-                  />
+                  // Fallback for other media types
+                  <Box position="relative">
+                    <Image 
+                      src={item.url} 
+                      alt="Tweet media" 
+                      maxH="300px" 
+                      objectFit="cover" 
+                      width="100%" 
+                    />
+                    <Flex
+                      position="absolute"
+                      top="0"
+                      left="0"
+                      right="0"
+                      bottom="0"
+                      bg="blackAlpha.600"
+                      justifyContent="center"
+                      alignItems="center"
+                      flexDirection="column"
+                    >
+                      <Text color="white" fontWeight="bold" mb={2}>Media content</Text>
+                      <Link 
+                        href={`https://twitter.com/${tweet.author.username}/status/${tweet.id}`}
+                        isExternal
+                        _hover={{ textDecoration: 'none' }}
+                      >
+                        <Button
+                          leftIcon={<ExternalLinkIcon />}
+                          colorScheme="twitter"
+                          size="sm"
+                        >
+                          View on X.com
+                        </Button>
+                      </Link>
+                    </Flex>
+                  </Box>
                 )}
               </Box>
             ))}
@@ -377,13 +483,57 @@ const TweetCard: React.FC<TweetCardProps> = ({ tweet, onAction }) => {
             
             {tweet.quotedTweet.media && tweet.quotedTweet.media.length > 0 && (
               <Box borderRadius="md" overflow="hidden">
-                <Image 
-                  src={tweet.quotedTweet.media[0].url} 
-                  alt="Quoted tweet media" 
-                  maxH="150px" 
-                  objectFit="cover" 
-                  width="100%" 
-                />
+                {tweet.quotedTweet.media[0].type === 'photo' ? (
+                  <Image 
+                    src={tweet.quotedTweet.media[0].url} 
+                    alt="Quoted tweet media" 
+                    maxH="150px" 
+                    objectFit="cover" 
+                    width="100%" 
+                  />
+                ) : tweet.quotedTweet.media[0].type === 'video' || tweet.quotedTweet.media[0].type === 'animated_gif' ? (
+                  <Box position="relative">
+                    <Image 
+                      src={tweet.quotedTweet.media[0].url} 
+                      alt="Quoted tweet video preview" 
+                      maxH="150px" 
+                      objectFit="cover" 
+                      width="100%" 
+                    />
+                    <Flex
+                      position="absolute"
+                      top="0"
+                      left="0"
+                      right="0"
+                      bottom="0"
+                      bg="blackAlpha.600"
+                      justifyContent="center"
+                      alignItems="center"
+                    >
+                      <Link 
+                        href={`https://twitter.com/${tweet.quotedTweet.author.username}/status/${tweet.quotedTweet.id}`}
+                        isExternal
+                        _hover={{ textDecoration: 'none' }}
+                      >
+                        <Button
+                          leftIcon={<ExternalLinkIcon />}
+                          colorScheme="twitter"
+                          size="xs"
+                        >
+                          View on X.com
+                        </Button>
+                      </Link>
+                    </Flex>
+                  </Box>
+                ) : (
+                  <Image 
+                    src={tweet.quotedTweet.media[0].url} 
+                    alt="Quoted tweet media" 
+                    maxH="150px" 
+                    objectFit="cover" 
+                    width="100%" 
+                  />
+                )}
               </Box>
             )}
           </Box>
