@@ -1321,40 +1321,21 @@ async def reply_to_tweet(request: Request):
 
 def find_correct_tweet_id(tweet_id: str, client=None) -> str:
     """
-    Ensure the tweet ID is a string and check for edit history if available.
+    Ensure the tweet ID is a string.
     
     Args:
         tweet_id: The tweet ID to check
-        client: Optional tweepy client to use for checking edit history
+        client: Optional tweepy client (kept for backward compatibility)
         
     Returns:
-        The tweet ID as a string, possibly updated with the correct edit history ID
+        The tweet ID as a string
     """
     # Ensure the tweet ID is a string
     tweet_id = str(tweet_id)
-    logger.info(f"Original tweet ID: {tweet_id}")
+    logger.info(f"Using tweet ID: {tweet_id}")
     
-    # If we have a client, try to check for edit history
-    if client:
-        try:
-            # Get the tweet to check for edit_history_tweet_ids
-            tweet_data = client.get_tweet(
-                tweet_id, 
-                tweet_fields=["edit_history_tweet_ids"]
-            )
-            
-            # If we have edit history and the current ID isn't the first one, use the first one
-            if (tweet_data and 
-                hasattr(tweet_data.data, 'edit_history_tweet_ids') and 
-                tweet_data.data.edit_history_tweet_ids and
-                tweet_data.data.edit_history_tweet_ids[0] != tweet_id):
-                
-                correct_id = tweet_data.data.edit_history_tweet_ids[0]
-                logger.info(f"Using edit history ID: {correct_id}")
-                return correct_id
-        except Exception as e:
-            # Log the error but continue with the original ID
-            logger.warning(f"Error checking edit history for tweet {tweet_id}: {str(e)}")
+    # We no longer need to check edit history as we're using the correct API endpoint
+    # that already provides the correct IDs
     
     return tweet_id
 

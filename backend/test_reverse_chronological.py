@@ -150,35 +150,9 @@ def test_reverse_chronological_timeline():
                 else:
                     logger.error(f"Error liking tweet: {like_response.status_code} - {like_response.text}")
                     
-                    # If there's an error, check if the tweet has edit history
-                    if "edit_history_tweet_ids" in first_tweet and first_tweet["edit_history_tweet_ids"]:
-                        edit_id = first_tweet["edit_history_tweet_ids"][0]
-                        logger.info(f"Trying with first edit history ID: {edit_id}")
-                        
-                        # Like the tweet with edit history ID
-                        like_data = {"tweet_id": edit_id}
-                        like_response = requests.post(
-                            like_url,
-                            auth=auth,
-                            json=like_data
-                        )
-                        
-                        if like_response.status_code == 200:
-                            logger.info(f"Successfully liked tweet with edit history ID: {edit_id}")
-                            
-                            # Unlike the tweet to reset state
-                            unlike_url = f"https://api.twitter.com/2/users/{user_id}/likes/{edit_id}"
-                            unlike_response = requests.delete(
-                                unlike_url,
-                                auth=auth
-                            )
-                            
-                            if unlike_response.status_code == 200:
-                                logger.info(f"Successfully unliked tweet with edit history ID: {edit_id}")
-                            else:
-                                logger.error(f"Error unliking tweet with edit history ID: {unlike_response.status_code} - {unlike_response.text}")
-                        else:
-                            logger.error(f"Error liking tweet with edit history ID: {like_response.status_code} - {like_response.text}")
+                    # We no longer need to check edit history as we're using the correct API endpoint
+                    # that already provides the correct IDs
+                    logger.info("Skipping edit history check as it's no longer needed")
         
         return True
         

@@ -28,6 +28,7 @@ import {
   ChatIcon,
   StarIcon,
   ExternalLinkIcon,
+  AttachmentIcon,
 } from '@chakra-ui/icons';
 import { Tweet } from './types';
 import { formatDistanceToNow } from 'date-fns';
@@ -37,12 +38,146 @@ interface TweetCardProps {
   onAction: (tweetId: string, action: string) => Promise<void>;
 }
 
+// Helper function to ensure avatar URLs are always available
+const getAvatarUrl = (profileImageUrl?: string, username?: string): string => {
+  // For debugging
+  console.log(`Processing avatar URL: ${profileImageUrl} for user: ${username}`);
+  
+  // Check if we have a valid profile image URL
+  if (profileImageUrl && profileImageUrl.trim() !== '') {
+    // Twitter profile images can have various size suffixes like _normal, _400x400, etc.
+    // First, check if it's a Twitter URL
+    if (profileImageUrl.includes('twimg.com/profile_images/')) {
+      console.log('Detected Twitter profile image URL');
+      
+      try {
+        // For Twitter URLs, we need to handle the size suffix
+        // Extract the base URL without the size suffix
+        const match = profileImageUrl.match(/(.*\/profile_images\/\d+\/[^_]+)(_\w+)?(\.\w+)$/);
+        if (match) {
+          // Instead of returning the direct Twitter URL, use a proxy service
+          // images.weserv.nl is a free image proxy service that can bypass content blocking
+          const originalUrl = `${match[1]}${match[3]}`;
+          console.log(`Original Twitter URL: ${originalUrl}`);
+          
+          // Encode the URL for the proxy
+          const encodedUrl = encodeURIComponent(originalUrl);
+          const proxyUrl = `https://images.weserv.nl/?url=${encodedUrl}&default=avatar`;
+          console.log(`Using proxy URL: ${proxyUrl}`);
+          return proxyUrl;
+        }
+        
+        // If the regex didn't match but it's still a Twitter URL, try a simpler approach
+        const simplifiedUrl = profileImageUrl.replace(/_\w+(\.\w+)$/, '$1');
+        console.log(`Simplified URL: ${simplifiedUrl}`);
+        
+        // Use the proxy for this URL too
+        const encodedUrl = encodeURIComponent(simplifiedUrl);
+        const proxyUrl = `https://images.weserv.nl/?url=${encodedUrl}&default=avatar`;
+        console.log(`Using proxy URL for simplified: ${proxyUrl}`);
+        return proxyUrl;
+      } catch (error) {
+        console.error('Error processing Twitter profile image URL:', error);
+        // If there's an error processing the URL, fall back to username-based URL
+      }
+    } else {
+      // For non-Twitter URLs, still use the proxy to avoid CORS issues
+      try {
+        const encodedUrl = encodeURIComponent(profileImageUrl);
+        const proxyUrl = `https://images.weserv.nl/?url=${encodedUrl}&default=avatar`;
+        console.log(`Using proxy URL for non-Twitter URL: ${proxyUrl}`);
+        return proxyUrl;
+      } catch (error) {
+        console.error('Error processing non-Twitter profile image URL:', error);
+        // If there's an error processing the URL, fall back to username-based URL
+      }
+    }
+  }
+  
+  // Use username to create a fallback URL
+  if (username && username.trim() !== '') {
+    try {
+      // Try multiple fallback services
+      // First try unavatar.io which aggregates multiple avatar services
+      const fallbackUrl = `https://unavatar.io/twitter/${encodeURIComponent(username)}`;
+      console.log(`Using fallback URL: ${fallbackUrl}`);
+      return fallbackUrl;
+    } catch (error) {
+      console.error('Error creating fallback URL:', error);
+    }
+  }
+  
+  // Default fallback - return empty string to let Avatar component use the name initials
+  console.log('No valid URL or username, returning empty string');
+  return '';
+};
+
+// Helper function to check if a video URL is directly playable
+const isPlayableVideo = (url?: string, contentType?: string): boolean => {
+  if (!url) return false;
+  
+  // Check if it's a direct video URL with a supported format
+  const isDirectVideo = url.match(/\.(mp4|webm|ogg)(\?.*)?$/i) !== null;
+  
+  // Check if content type is a video type
+  const isVideoType = contentType ? contentType.startsWith('video/') : false;
+  
+  // Check if it's not from a domain that typically blocks embedding
+  const isNotBlockedDomain = !url.includes('video.twimg.com');
+  
+  return (isDirectVideo || isVideoType) && isNotBlockedDomain;
+};
+
+// Helper function to proxy any Twitter image URL
+const getProxyImageUrl = (imageUrl?: string): string => {
+  if (!imageUrl || imageUrl.trim() === '') {
+    return '';
+  }
+  
+  try {
+    // Check if it's a Twitter URL
+    if (imageUrl.includes('twimg.com')) {
+      console.log(`Proxying Twitter media URL: ${imageUrl}`);
+      
+      // For video thumbnails, sometimes we need to handle special cases
+      if (imageUrl.includes('ext_tw_video_thumb') || imageUrl.includes('amplify_video_thumb')) {
+        // These are usually video thumbnails that might be blocked
+        const encodedUrl = encodeURIComponent(imageUrl);
+        const proxyUrl = `https://images.weserv.nl/?url=${encodedUrl}&default=https://abs.twimg.com/sticky/default_profile_images/default_profile_400x400.png`;
+        console.log(`Using proxy URL for video thumbnail: ${proxyUrl}`);
+        return proxyUrl;
+      }
+      
+      // For other Twitter media
+      const encodedUrl = encodeURIComponent(imageUrl);
+      const proxyUrl = `https://images.weserv.nl/?url=${encodedUrl}`;
+      console.log(`Using proxy URL for media: ${proxyUrl}`);
+      return proxyUrl;
+    }
+    
+    // For non-Twitter URLs, still use the proxy to avoid potential CORS issues
+    if (imageUrl.startsWith('http')) {
+      const encodedUrl = encodeURIComponent(imageUrl);
+      const proxyUrl = `https://images.weserv.nl/?url=${encodedUrl}`;
+      console.log(`Using proxy URL for non-Twitter media: ${proxyUrl}`);
+      return proxyUrl;
+    }
+    
+    // If it's a relative URL or doesn't start with http, return as is
+    return imageUrl;
+  } catch (error) {
+    console.error('Error processing media URL:', error);
+    // If there's an error processing the URL, return the original
+    return imageUrl;
+  }
+};
+
 const TweetCard: React.FC<TweetCardProps> = ({ tweet, onAction }) => {
   const [replyText, setReplyText] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { isOpen, onOpen, onClose } = useDisclosure();
   const toast = useToast();
-
+  
   // Format the tweet creation date
   const formattedDate = tweet.createdAt 
     ? formatDistanceToNow(new Date(tweet.createdAt), { addSuffix: true })
@@ -301,7 +436,7 @@ const TweetCard: React.FC<TweetCardProps> = ({ tweet, onAction }) => {
       {/* Tweet header */}
       <Flex mb={2}>
         <Avatar 
-          src={tweet.author.profileImageUrl} 
+          src={getAvatarUrl(tweet.author.profileImageUrl, tweet.author.username)}
           name={tweet.author.name} 
           size="md" 
           mr={3} 
@@ -340,80 +475,168 @@ const TweetCard: React.FC<TweetCardProps> = ({ tweet, onAction }) => {
           <Box mb={3} borderRadius="md" overflow="hidden">
             {tweet.media.map((item, index) => (
               <Box key={index} maxH="300px" overflow="hidden" borderRadius="md" position="relative">
-                {item.type === 'photo' ? (
+                {item.type === 'photo' && item.url ? (
                   <Image 
-                    src={item.url} 
+                    src={getProxyImageUrl(item.url)} 
                     alt="Tweet media" 
                     maxH="300px" 
                     objectFit="cover" 
                     width="100%" 
                   />
                 ) : item.type === 'video' ? (
-                  // Check if we have a valid video URL or just a preview image
-                  item.url && item.url.includes('video') ? (
-                    <Box 
-                      as="video" 
-                      controls 
-                      src={item.url} 
-                      maxH="300px" 
-                      width="100%" 
-                      objectFit="cover"
-                    />
-                  ) : (
-                    // For pic.x.com links that are likely videos but we only have preview image
-                    <Box position="relative">
+                  // For videos, try to play them directly if possible
+                  <Box position="relative">
+                    {isPlayableVideo(item.url, item.content_type) ? (
+                      <Box position="relative" width="100%" maxH="300px">
+                        <video 
+                          controls
+                          preload="metadata"
+                          {...(item.preview_image_url ? { poster: getProxyImageUrl(item.preview_image_url) } : {})}
+                          style={{ maxHeight: '300px', width: '100%', objectFit: 'contain' }}
+                          onClick={(e) => e.currentTarget.paused ? e.currentTarget.play() : e.currentTarget.pause()}
+                        >
+                          <source src={item.url} type={item.content_type || 'video/mp4'} />
+                          Your browser does not support the video tag.
+                        </video>
+                        <Box 
+                          position="absolute" 
+                          top="50%" 
+                          left="50%" 
+                          transform="translate(-50%, -50%)" 
+                          bg="blackAlpha.700" 
+                          borderRadius="full" 
+                          width="60px" 
+                          height="60px" 
+                          display="flex" 
+                          justifyContent="center" 
+                          alignItems="center"
+                          opacity="0.8"
+                          _hover={{ opacity: 1 }}
+                          pointerEvents="none"
+                          className="video-play-button"
+                        >
+                          <Box 
+                            as="span" 
+                            borderLeft="20px solid white" 
+                            borderTop="12px solid transparent" 
+                            borderBottom="12px solid transparent" 
+                            ml={1}
+                          />
+                        </Box>
+                      </Box>
+                    ) : item.preview_image_url ? (
                       <Image 
-                        src={item.url} 
+                        src={getProxyImageUrl(item.preview_image_url)} 
                         alt="Video preview" 
                         maxH="300px" 
                         objectFit="cover" 
                         width="100%" 
                       />
+                    ) : (
+                      // Enhanced placeholder for videos without preview
                       <Flex
-                        position="absolute"
-                        top="0"
-                        left="0"
-                        right="0"
-                        bottom="0"
-                        bg="blackAlpha.600"
+                        height="200px"
+                        width="100%"
+                        bg="gray.700"
                         justifyContent="center"
                         alignItems="center"
                         flexDirection="column"
+                        p={4}
+                        borderRadius="md"
                       >
-                        <Text color="white" fontWeight="bold" mb={2}>Video content</Text>
-                        <Link 
-                          href={createTwitterUrl(tweet.author.username, tweet.id)}
-                          isExternal
-                          _hover={{ textDecoration: 'none' }}
+                        <Box 
+                          width="60px" 
+                          height="60px" 
+                          borderRadius="full" 
+                          bg="blackAlpha.600" 
+                          display="flex" 
+                          justifyContent="center" 
+                          alignItems="center"
+                          mb={3}
                         >
-                          <Button
-                            leftIcon={<ExternalLinkIcon />}
-                            colorScheme="twitter"
-                            size="sm"
-                          >
-                            View on X.com
-                          </Button>
-                        </Link>
+                          <Box 
+                            as="span" 
+                            borderLeft="20px solid white" 
+                            borderTop="12px solid transparent" 
+                            borderBottom="12px solid transparent" 
+                            ml={1}
+                          />
+                        </Box>
+                        <Text color="white" fontWeight="bold" mb={1}>Video content</Text>
+                        <Text color="whiteAlpha.700" fontSize="sm">Preview not available</Text>
                       </Flex>
-                    </Box>
-                  )
-                ) : item.type === 'animated_gif' ? (
-                  // Handle GIFs - they often come as preview images too
-                  <Box position="relative">
-                    <Image 
-                      src={item.url} 
-                      alt="GIF preview" 
-                      maxH="300px" 
-                      objectFit="cover" 
-                      width="100%" 
-                    />
+                    )}
                     <Flex
                       position="absolute"
                       top="0"
                       left="0"
                       right="0"
                       bottom="0"
-                      bg="blackAlpha.600"
+                      bg="rgba(0, 0, 0, 0.6)"
+                      justifyContent="center"
+                      alignItems="center"
+                      flexDirection="column"
+                    >
+                      <Text color="white" fontWeight="bold" mb={2}>Video content</Text>
+                      <Link 
+                        href={createTwitterUrl(tweet.author.username, tweet.id)}
+                        isExternal
+                        _hover={{ textDecoration: 'none' }}
+                      >
+                        <Button
+                          leftIcon={<ExternalLinkIcon />}
+                          colorScheme="twitter"
+                          size="sm"
+                        >
+                          View on X.com
+                        </Button>
+                      </Link>
+                    </Flex>
+                  </Box>
+                ) : item.type === 'animated_gif' ? (
+                  // Handle GIFs - they often come as preview images too
+                  <Box position="relative">
+                    {item.preview_image_url ? (
+                      <Image 
+                        src={getProxyImageUrl(item.preview_image_url)} 
+                        alt="GIF preview" 
+                        maxH="300px" 
+                        objectFit="cover" 
+                        width="100%" 
+                      />
+                    ) : (
+                      // Enhanced placeholder for GIFs without preview
+                      <Flex
+                        height="200px"
+                        width="100%"
+                        bg="gray.700"
+                        justifyContent="center"
+                        alignItems="center"
+                        flexDirection="column"
+                        p={4}
+                        borderRadius="md"
+                      >
+                        <Text 
+                          fontSize="2xl" 
+                          fontWeight="bold" 
+                          color="white" 
+                          mb={2}
+                          p={2}
+                          border="2px solid white"
+                          borderRadius="md"
+                        >
+                          GIF
+                        </Text>
+                        <Text color="whiteAlpha.700" fontSize="sm">Preview not available</Text>
+                      </Flex>
+                    )}
+                    <Flex
+                      position="absolute"
+                      top="0"
+                      left="0"
+                      right="0"
+                      bottom="0"
+                      bg="rgba(0, 0, 0, 0.6)"
                       justifyContent="center"
                       alignItems="center"
                       flexDirection="column"
@@ -435,27 +658,60 @@ const TweetCard: React.FC<TweetCardProps> = ({ tweet, onAction }) => {
                     </Flex>
                   </Box>
                 ) : (
-                  // Fallback for other media types
+                  // Improved fallback for unsupported media types
                   <Box position="relative">
-                    <Image 
-                      src={item.url} 
-                      alt="Tweet media" 
-                      maxH="300px" 
-                      objectFit="cover" 
-                      width="100%" 
-                    />
+                    {item.preview_image_url ? (
+                      <Image 
+                        src={getProxyImageUrl(item.preview_image_url)} 
+                        alt="Media preview" 
+                        maxH="300px" 
+                        objectFit="cover" 
+                        width="100%" 
+                      />
+                    ) : (
+                      // Enhanced placeholder for other media types without preview
+                      <Flex
+                        height="200px"
+                        width="100%"
+                        bg="gray.700"
+                        justifyContent="center"
+                        alignItems="center"
+                        flexDirection="column"
+                        p={4}
+                        borderRadius="md"
+                      >
+                        <Box 
+                          width="60px" 
+                          height="60px" 
+                          borderRadius="md" 
+                          bg="blackAlpha.600" 
+                          display="flex" 
+                          justifyContent="center" 
+                          alignItems="center"
+                          mb={3}
+                        >
+                          <AttachmentIcon boxSize="30px" color="white" />
+                        </Box>
+                        <Text color="white" fontWeight="bold" mb={1}>
+                          {item.type ? `${item.type.charAt(0).toUpperCase() + item.type.slice(1)} content` : 'Media content'}
+                        </Text>
+                        <Text color="whiteAlpha.700" fontSize="sm">Preview not available</Text>
+                      </Flex>
+                    )}
                     <Flex
                       position="absolute"
                       top="0"
                       left="0"
                       right="0"
                       bottom="0"
-                      bg="blackAlpha.600"
+                      bg="rgba(0, 0, 0, 0.6)"
                       justifyContent="center"
                       alignItems="center"
                       flexDirection="column"
                     >
-                      <Text color="white" fontWeight="bold" mb={2}>Media content</Text>
+                      <Text color="white" fontWeight="bold" mb={2}>
+                        {item.type ? `${item.type.charAt(0).toUpperCase() + item.type.slice(1)} content` : 'Media content'}
+                      </Text>
                       <Link 
                         href={createTwitterUrl(tweet.author.username, tweet.id)}
                         isExternal
@@ -489,7 +745,7 @@ const TweetCard: React.FC<TweetCardProps> = ({ tweet, onAction }) => {
           >
             <Flex mb={2}>
               <Avatar 
-                src={tweet.quotedTweet.author.profileImageUrl} 
+                src={getAvatarUrl(tweet.quotedTweet.author.profileImageUrl, tweet.quotedTweet.author.username)}
                 name={tweet.quotedTweet.author.name} 
                 size="sm" 
                 mr={2} 
@@ -515,11 +771,12 @@ const TweetCard: React.FC<TweetCardProps> = ({ tweet, onAction }) => {
               {tweet.quotedTweet.text}
             </Text>
             
+            {/* Quoted tweet media */}
             {tweet.quotedTweet.media && tweet.quotedTweet.media.length > 0 && (
               <Box borderRadius="md" overflow="hidden">
-                {tweet.quotedTweet.media[0].type === 'photo' ? (
+                {tweet.quotedTweet.media[0].type === 'photo' && tweet.quotedTweet.media[0].url ? (
                   <Image 
-                    src={tweet.quotedTweet.media[0].url} 
+                    src={getProxyImageUrl(tweet.quotedTweet.media[0].url)} 
                     alt="Quoted tweet media" 
                     maxH="150px" 
                     objectFit="cover" 
@@ -527,20 +784,98 @@ const TweetCard: React.FC<TweetCardProps> = ({ tweet, onAction }) => {
                   />
                 ) : tweet.quotedTweet.media[0].type === 'video' || tweet.quotedTweet.media[0].type === 'animated_gif' ? (
                   <Box position="relative">
-                    <Image 
-                      src={tweet.quotedTweet.media[0].url} 
-                      alt="Quoted tweet video preview" 
-                      maxH="150px" 
-                      objectFit="cover" 
-                      width="100%" 
-                    />
+                    {isPlayableVideo(tweet.quotedTweet.media[0].url, tweet.quotedTweet.media[0].content_type) ? (
+                      <Box position="relative" width="100%" maxH="150px">
+                        <video 
+                          controls
+                          preload="metadata"
+                          {...(tweet.quotedTweet.media[0].preview_image_url ? { poster: getProxyImageUrl(tweet.quotedTweet.media[0].preview_image_url) } : {})}
+                          style={{ maxHeight: '150px', width: '100%', objectFit: 'contain' }}
+                          onClick={(e) => e.currentTarget.paused ? e.currentTarget.play() : e.currentTarget.pause()}
+                        >
+                          <source src={tweet.quotedTweet.media[0].url} type={tweet.quotedTweet.media[0].content_type || 'video/mp4'} />
+                          Your browser does not support the video tag.
+                        </video>
+                        <Box 
+                          position="absolute" 
+                          top="50%" 
+                          left="50%" 
+                          transform="translate(-50%, -50%)" 
+                          bg="blackAlpha.700" 
+                          borderRadius="full" 
+                          width="40px" 
+                          height="40px" 
+                          display="flex" 
+                          justifyContent="center" 
+                          alignItems="center"
+                          opacity="0.8"
+                          _hover={{ opacity: 1 }}
+                          pointerEvents="none"
+                          className="video-play-button"
+                        >
+                          <Box 
+                            as="span" 
+                            borderLeft="15px solid white" 
+                            borderTop="9px solid transparent" 
+                            borderBottom="9px solid transparent" 
+                            ml={1}
+                          />
+                        </Box>
+                      </Box>
+                    ) : tweet.quotedTweet.media[0].preview_image_url ? (
+                      <Image 
+                        src={getProxyImageUrl(tweet.quotedTweet.media[0].preview_image_url)} 
+                        alt="Quoted tweet video preview" 
+                        maxH="150px" 
+                        objectFit="cover" 
+                        width="100%" 
+                      />
+                    ) : (
+                      // Enhanced placeholder for quoted tweet videos/GIFs without preview
+                      <Flex
+                        height="100px"
+                        width="100%"
+                        bg="gray.700"
+                        justifyContent="center"
+                        alignItems="center"
+                        flexDirection="column"
+                        p={2}
+                        borderRadius="md"
+                      >
+                        <Box 
+                          width="30px" 
+                          height="30px" 
+                          borderRadius="full" 
+                          bg="blackAlpha.600" 
+                          display="flex" 
+                          justifyContent="center" 
+                          alignItems="center"
+                          mb={1}
+                        >
+                          {tweet.quotedTweet.media[0].type === 'video' ? (
+                            <Box 
+                              as="span" 
+                              borderLeft="10px solid white" 
+                              borderTop="6px solid transparent" 
+                              borderBottom="6px solid transparent" 
+                              ml={1}
+                            />
+                          ) : (
+                            <Text fontSize="xs" fontWeight="bold" color="white">GIF</Text>
+                          )}
+                        </Box>
+                        <Text color="white" fontSize="xs" mb={1}>
+                          {tweet.quotedTweet.media[0].type === 'video' ? 'Video' : 'GIF'} content
+                        </Text>
+                      </Flex>
+                    )}
                     <Flex
                       position="absolute"
                       top="0"
                       left="0"
                       right="0"
                       bottom="0"
-                      bg="blackAlpha.600"
+                      bg="rgba(0, 0, 0, 0.6)"
                       justifyContent="center"
                       alignItems="center"
                     >
@@ -560,13 +895,72 @@ const TweetCard: React.FC<TweetCardProps> = ({ tweet, onAction }) => {
                     </Flex>
                   </Box>
                 ) : (
-                  <Image 
-                    src={tweet.quotedTweet.media[0].url} 
-                    alt="Quoted tweet media" 
-                    maxH="150px" 
-                    objectFit="cover" 
-                    width="100%" 
-                  />
+                  // Improved fallback for unsupported media types in quoted tweets
+                  <Box position="relative">
+                    {tweet.quotedTweet.media[0].preview_image_url ? (
+                      <Image 
+                        src={getProxyImageUrl(tweet.quotedTweet.media[0].preview_image_url)} 
+                        alt="Media preview" 
+                        maxH="150px" 
+                        objectFit="cover" 
+                        width="100%" 
+                      />
+                    ) : (
+                      // Enhanced placeholder for other media types without preview
+                      <Flex
+                        height="100px"
+                        width="100%"
+                        bg="gray.700"
+                        justifyContent="center"
+                        alignItems="center"
+                        flexDirection="column"
+                        p={2}
+                        borderRadius="md"
+                      >
+                        <Box 
+                          width="30px" 
+                          height="30px" 
+                          borderRadius="md" 
+                          bg="blackAlpha.600" 
+                          display="flex" 
+                          justifyContent="center" 
+                          alignItems="center"
+                          mb={1}
+                        >
+                          <AttachmentIcon boxSize="15px" color="white" />
+                        </Box>
+                        <Text color="white" fontSize="xs" textAlign="center">
+                          {tweet.quotedTweet.media[0].type 
+                            ? `${tweet.quotedTweet.media[0].type.charAt(0).toUpperCase() + tweet.quotedTweet.media[0].type.slice(1)}` 
+                            : 'Media'} content
+                        </Text>
+                      </Flex>
+                    )}
+                    <Flex
+                      position="absolute"
+                      top="0"
+                      left="0"
+                      right="0"
+                      bottom="0"
+                      bg="rgba(0, 0, 0, 0.6)"
+                      justifyContent="center"
+                      alignItems="center"
+                    >
+                      <Link 
+                        href={createTwitterUrl(tweet.quotedTweet.author.username, tweet.quotedTweet.id)}
+                        isExternal
+                        _hover={{ textDecoration: 'none' }}
+                      >
+                        <Button
+                          leftIcon={<ExternalLinkIcon />}
+                          colorScheme="twitter"
+                          size="xs"
+                        >
+                          View on X.com
+                        </Button>
+                      </Link>
+                    </Flex>
+                  </Box>
                 )}
               </Box>
             )}
@@ -626,7 +1020,7 @@ const TweetCard: React.FC<TweetCardProps> = ({ tweet, onAction }) => {
             <VStack spacing={4} align="stretch">
               <Flex>
                 <Avatar 
-                  src={tweet.author.profileImageUrl} 
+                  src={getAvatarUrl(tweet.author.profileImageUrl, tweet.author.username)}
                   name={tweet.author.name} 
                   size="sm" 
                   mr={2} 

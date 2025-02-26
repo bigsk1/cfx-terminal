@@ -234,6 +234,11 @@ const HomeTimeline: React.FC<HomeTimelineProps> = ({ onClose, isVisible = true }
       // Get author information
       let author = usersMap.get(tweet.author_id) || {};
       
+      // Create proper profile image URL
+      const authorUsername = author.username || '';
+      // Use the actual profile_image_url if available, otherwise use a fallback
+      const profileImageUrl = author.profile_image_url || '';
+      
       // Process media attachments
       const mediaKeys = tweet.attachments?.media_keys || [];
       const media = mediaKeys
@@ -271,6 +276,14 @@ const HomeTimeline: React.FC<HomeTimelineProps> = ({ onClose, isVisible = true }
             }
           }
           
+          // Ensure we always have a URL, even if it's just for linking
+          if (!mediaItem.url && !mediaItem.preview_image_url) {
+            // If we have no URL at all, create a placeholder URL to the tweet
+            const tweetId = String(tweet.id);
+            const authorUsername = author.username || '';
+            mediaItem.url = `https://twitter.com/${authorUsername}/status/${tweetId}`;
+          }
+          
           return mediaItem;
         });
       
@@ -292,7 +305,8 @@ const HomeTimeline: React.FC<HomeTimelineProps> = ({ onClose, isVisible = true }
           id: String(author.id),
           name: author.name,
           username: author.username,
-          profileImageUrl: author.profile_image_url,
+          // Ensure retweeted by user has a profile image
+          profileImageUrl: author.profile_image_url || (author.username ? `https://x.com/${author.username}/photo` : ''),
         };
         
         // Update the author to the original tweet's author
@@ -308,6 +322,11 @@ const HomeTimeline: React.FC<HomeTimelineProps> = ({ onClose, isVisible = true }
         const quotedAuthorId = quotedTweet.author_id;
         const quotedAuthor = quotedAuthorId ? usersMap.get(quotedAuthorId) || {} : {};
         
+        // Create fallback profile image URL for quoted tweet author
+        const quotedAuthorUsername = quotedAuthor.username || '';
+        // Use a more reliable fallback URL format
+        const quotedProfileImageUrl = quotedAuthor.profile_image_url || (quotedAuthorUsername ? `https://x.com/${quotedAuthorUsername}/photo` : '');
+
         const quotedMediaKeys = quotedTweet.attachments?.media_keys || [];
         const quotedMedia = quotedMediaKeys
           .map((key: string) => mediaMap.get(key))
@@ -344,6 +363,14 @@ const HomeTimeline: React.FC<HomeTimelineProps> = ({ onClose, isVisible = true }
               }
             }
             
+            // Ensure we always have a URL, even if it's just for linking
+            if (!mediaItem.url && !mediaItem.preview_image_url) {
+              // If we have no URL at all, create a placeholder URL to the tweet
+              const quotedTweetId = String(quotedTweet.id);
+              const quotedAuthorUsername = quotedAuthor.username || '';
+              mediaItem.url = `https://twitter.com/${quotedAuthorUsername}/status/${quotedTweetId}`;
+            }
+            
             return mediaItem;
           });
         
@@ -355,7 +382,7 @@ const HomeTimeline: React.FC<HomeTimelineProps> = ({ onClose, isVisible = true }
             id: String(quotedAuthor.id),
             name: quotedAuthor.name,
             username: quotedAuthor.username,
-            profileImageUrl: quotedAuthor.profile_image_url,
+            profileImageUrl: quotedProfileImageUrl,
             verified: quotedAuthor.verified,
           },
           media: quotedMedia,
@@ -379,10 +406,17 @@ const HomeTimeline: React.FC<HomeTimelineProps> = ({ onClose, isVisible = true }
           id: String(author.id),
           name: author.name,
           username: author.username,
-          profileImageUrl: author.profile_image_url,
+          // Ensure we always have a profile image URL
+          profileImageUrl: profileImageUrl || (author.username ? `https://x.com/${author.username}/photo` : ''),
           verified: author.verified,
         },
-        retweetedBy,
+        retweetedBy: retweetedBy ? {
+          id: String(retweetedBy.id),
+          name: retweetedBy.name,
+          username: retweetedBy.username,
+          // Ensure retweeted by user has a profile image
+          profileImageUrl: retweetedBy.profileImageUrl || (retweetedBy.username ? `https://x.com/${retweetedBy.username}/photo` : ''),
+        } : null,
         quotedTweet: quotedTweetData,
         media,
         metrics,

@@ -170,7 +170,11 @@ const TweetComposer: React.FC<TweetComposerProps> = ({
         <Avatar 
           size="md" 
           mr={3}
-          src="/placeholder-avatar.png"
+          name="You"
+          src="https://images.weserv.nl/?url=https%3A%2F%2Funavatar.io%2Fyou&default=avatar"
+          bg="twitter.500"
+          color="white"
+          fontWeight="bold"
         />
         <Box flex="1">
           <Textarea
