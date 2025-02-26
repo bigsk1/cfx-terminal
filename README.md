@@ -40,7 +40,7 @@ The application includes a full Twitter timeline integration:
 3. See media attachments, quoted tweets, and other rich content
 4. Automatic handling of rate limits with caching for better performance
 
-![Timeline](frontend/public/images/timeline.png)
+
 
 ## Cloudflare Images Integration
 
