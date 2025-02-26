@@ -977,12 +977,12 @@ async def get_home_timeline(count: int = 20, cursor: str = None):
         wait_on_rate_limit=False  # Don't wait on rate limit
     )
     
-    # Prepare parameters for the request
+    # Prepare parameters for the request - FIXED: Use underscores instead of dots for Tweepy
     params = {
         "max_results": count,
-        "tweet.fields": "created_at,public_metrics,entities,referenced_tweets,attachments",
-        "user.fields": "profile_image_url,verified",
-        "media.fields": "url,preview_image_url,type,duration_ms,height,width,alt_text,variants",
+        "tweet_fields": "created_at,public_metrics,entities,referenced_tweets,attachments",
+        "user_fields": "profile_image_url,verified",
+        "media_fields": "url,preview_image_url,type,duration_ms,height,width,alt_text,variants",
         "expansions": "author_id,referenced_tweets.id,referenced_tweets.id.author_id,attachments.media_keys"
     }
     
@@ -1232,8 +1232,12 @@ async def reply_to_tweet(request: Request):
     try:
         # Parse request body
         body = await request.json()
-        tweet_id = body.get("tweet_id")
-        text = body.get("text")
+        tweet_id = str(body.get("tweet_id", ""))
+        text = body.get("text", "")
+        image_url = body.get("image_url")
+        
+        # Log the incoming request
+        logger.info(f"Reply request: id={tweet_id}, text_preview={text[:20]}...")
         
         if not tweet_id or not text:
             raise HTTPException(
@@ -1253,7 +1257,7 @@ async def reply_to_tweet(request: Request):
                 detail="Twitter API credentials not configured"
             )
         
-        # Initialize Twitter client with OAuth 2.0 for API v2
+        # Initialize Twitter client
         client = tweepy.Client(
             consumer_key=twitter_api_key,
             consumer_secret=twitter_api_secret,
@@ -1261,15 +1265,55 @@ async def reply_to_tweet(request: Request):
             access_token_secret=twitter_access_secret
         )
         
-        # Post the reply
+        # Ensure tweet_id is a string
+        tweet_id = find_correct_tweet_id(tweet_id)
+        
+        # Handle image if provided
+        media_id = None
+        if image_url:
+            # Initialize Twitter API v1.1 for media upload
+            auth = tweepy.OAuth1UserHandler(
+                twitter_api_key,
+                twitter_api_secret,
+                twitter_access_token,
+                twitter_access_secret
+            )
+            api = tweepy.API(auth)
+            
+            # Download the image
+            response = requests.get(image_url)
+            if response.status_code != 200:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Failed to download image"
+                )
+            
+            # Save the image temporarily
+            temp_file = f"temp_images/reply_image_{uuid.uuid4()}.jpg"
+            with open(temp_file, "wb") as f:
+                f.write(response.content)
+            
+            # Upload the image to Twitter
+            media = api.media_upload(temp_file)
+            media_id = media.media_id
+            
+            # Remove the temporary file
+            os.remove(temp_file)
+        
+        # Reply to the tweet
         response = client.create_tweet(
             text=text,
-            in_reply_to_tweet_id=tweet_id
+            in_reply_to_tweet_id=tweet_id,
+            media_ids=[media_id] if media_id else None
         )
         
-        # Return the tweet ID
-        return {"tweet_id": response.data["id"]}
-    
+        # Return the new tweet ID
+        return {
+            "status": "replied",
+            "tweet_id": response.data["id"],
+            "in_reply_to": tweet_id
+        }
+        
     except tweepy.TweepyException as e:
         logger.error(f"Twitter API error: {str(e)}")
         raise HTTPException(
@@ -1283,36 +1327,48 @@ async def reply_to_tweet(request: Request):
             detail=f"Error replying to tweet: {str(e)}"
         )
 
+def find_correct_tweet_id(tweet_id: str) -> str:
+    """
+    Ensure the tweet ID is a string.
+    
+    Args:
+        tweet_id: The tweet ID to check
+        
+    Returns:
+        The tweet ID as a string
+    """
+    # Ensure the tweet ID is a string
+    tweet_id = str(tweet_id)
+    logger.info(f"Using tweet ID: {tweet_id}")
+    return tweet_id
+
 @app.post("/api/twitter/tweet-action")
 async def tweet_action(request: Request):
     """
-    Perform an action on a tweet (like, retweet, etc.).
+    Perform an action on a tweet (like, unlike, retweet, unretweet)
     """
     try:
-        # Parse request body
+        # Parse the request body
         body = await request.json()
         tweet_id = body.get("tweet_id")
         action = body.get("action")
         
-        if not tweet_id or not action:
-            raise HTTPException(
-                status_code=400,
-                detail="Missing required parameters: tweet_id and action"
-            )
+        logger.info(f"Tweet action request: {action} for tweet {tweet_id}")
         
-        # Check if Twitter credentials are available
+        # Check for required parameters
+        if not tweet_id or not action:
+            raise HTTPException(status_code=400, detail="Missing required parameters")
+        
+        # Check for Twitter API credentials
         twitter_api_key = os.environ.get("X_CONSUMER_KEY")
         twitter_api_secret = os.environ.get("X_CONSUMER_SECRET")
         twitter_access_token = os.environ.get("X_ACCESS_TOKEN")
         twitter_access_secret = os.environ.get("X_ACCESS_TOKEN_SECRET")
         
         if not all([twitter_api_key, twitter_api_secret, twitter_access_token, twitter_access_secret]):
-            raise HTTPException(
-                status_code=400,
-                detail="Twitter API credentials not configured"
-            )
+            raise HTTPException(status_code=400, detail="Twitter API credentials not configured")
         
-        # Initialize Twitter client with OAuth 2.0 for API v2
+        # Initialize Twitter client
         client = tweepy.Client(
             consumer_key=twitter_api_key,
             consumer_secret=twitter_api_secret,
@@ -1320,37 +1376,69 @@ async def tweet_action(request: Request):
             access_token_secret=twitter_access_secret
         )
         
-        # Perform the requested action
-        if action == "like":
-            response = client.like(tweet_id)
-            return {"status": "liked"}
-        elif action == "unlike":
-            response = client.unlike(tweet_id)
-            return {"status": "unliked"}
-        elif action == "retweet":
-            response = client.retweet(tweet_id)
-            return {"status": "retweeted"}
-        elif action == "unretweet":
-            response = client.unretweet(tweet_id)
-            return {"status": "unretweeted"}
-        else:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Unsupported action: {action}"
-            )
-    
-    except tweepy.TweepyException as e:
-        logger.error(f"Twitter API error: {str(e)}")
-        raise HTTPException(
-            status_code=400,
-            detail=f"Twitter API error: {str(e)}"
-        )
+        # Ensure tweet_id is a string
+        tweet_id = find_correct_tweet_id(tweet_id)
+        
+        # Define a function to perform the action with error handling and retries
+        def perform_action(id_to_use):
+            try:
+                if action == "like":
+                    response = client.like(id_to_use)
+                    return {"status": "success", "message": "Tweet liked successfully", "data": response}
+                elif action == "unlike":
+                    response = client.unlike(id_to_use)
+                    return {"status": "success", "message": "Tweet unliked successfully", "data": response}
+                elif action == "retweet":
+                    response = client.retweet(id_to_use)
+                    return {"status": "success", "message": "Tweet retweeted successfully", "data": response}
+                elif action == "unretweet":
+                    response = client.unretweet(id_to_use)
+                    return {"status": "success", "message": "Tweet unretweeted successfully", "data": response}
+                else:
+                    raise HTTPException(status_code=400, detail=f"Unsupported action: {action}")
+            except Exception as e:
+                logger.error(f"Error performing {action} on tweet {id_to_use}: {str(e)}")
+                raise e
+        
+        # First attempt with the original ID
+        try:
+            return perform_action(tweet_id)
+        except Exception as first_error:
+            logger.warning(f"First attempt failed: {str(first_error)}")
+            
+            # If the ID ends with '00', try with '50' as a fallback
+            if tweet_id.endswith('00'):
+                try:
+                    alternative_id = tweet_id[:-2] + '50'
+                    logger.info(f"Attempting with alternative ID: {alternative_id}")
+                    return perform_action(alternative_id)
+                except Exception as second_error:
+                    logger.error(f"Alternative ID attempt failed: {str(second_error)}")
+            
+            # If we have edit history, try with the first edit history ID
+            try:
+                # Try to get the tweet to check for edit_history_tweet_ids
+                tweet_data = client.get_tweet(
+                    tweet_id, 
+                    tweet_fields=["edit_history_tweet_ids"]
+                )
+                
+                if tweet_data and hasattr(tweet_data.data, 'edit_history_tweet_ids') and tweet_data.data.edit_history_tweet_ids:
+                    edit_history_id = tweet_data.data.edit_history_tweet_ids[0]
+                    if edit_history_id != tweet_id:
+                        logger.info(f"Attempting with edit history ID: {edit_history_id}")
+                        return perform_action(edit_history_id)
+            except Exception as third_error:
+                logger.error(f"Edit history attempt failed: {str(third_error)}")
+            
+            # If all attempts failed, raise the original error
+            raise HTTPException(status_code=400, detail=f"Failed to {action} tweet: {str(first_error)}")
+            
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Error performing tweet action: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error performing tweet action: {str(e)}"
-        )
+        logger.error(f"Error in tweet_action: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn

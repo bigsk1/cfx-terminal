@@ -217,10 +217,14 @@ const HomeTimeline: React.FC<HomeTimelineProps> = ({ onClose, isVisible = true }
     // Create a map of referenced tweets for quick lookup
     const tweetsMap = new Map();
     data.data.forEach((tweet: any) => {
+      // Ensure tweet ID is a string
+      tweet.id = String(tweet.id);
       tweetsMap.set(tweet.id, tweet);
     });
     if (data.includes?.tweets) {
       data.includes.tweets.forEach((tweet: any) => {
+        // Ensure tweet ID is a string
+        tweet.id = String(tweet.id);
         tweetsMap.set(tweet.id, tweet);
       });
     }
@@ -275,17 +279,17 @@ const HomeTimeline: React.FC<HomeTimelineProps> = ({ onClose, isVisible = true }
       
       // Find retweet if present
       const retweetRef = referencedTweets.find((rt: any) => rt.type === 'retweeted');
-      const retweet = retweetRef ? tweetsMap.get(retweetRef.id) : null;
+      const retweet = retweetRef ? tweetsMap.get(String(retweetRef.id)) : null;
       
       // Find quoted tweet if present
       const quoteRef = referencedTweets.find((rt: any) => rt.type === 'quoted');
-      const quotedTweet = quoteRef ? tweetsMap.get(quoteRef.id) : null;
+      const quotedTweet = quoteRef ? tweetsMap.get(String(quoteRef.id)) : null;
       
       // If this is a retweet, get the original author
       let retweetedBy = null;
       if (retweet) {
         retweetedBy = {
-          id: author.id,
+          id: String(author.id),
           name: author.name,
           username: author.username,
           profileImageUrl: author.profile_image_url,
@@ -344,11 +348,11 @@ const HomeTimeline: React.FC<HomeTimelineProps> = ({ onClose, isVisible = true }
           });
         
         quotedTweetData = {
-          id: quotedTweet.id,
+          id: String(quotedTweet.id),
           text: quotedTweet.text,
           createdAt: quotedTweet.created_at,
           author: {
-            id: quotedAuthor.id,
+            id: String(quotedAuthor.id),
             name: quotedAuthor.name,
             username: quotedAuthor.username,
             profileImageUrl: quotedAuthor.profile_image_url,
@@ -368,11 +372,11 @@ const HomeTimeline: React.FC<HomeTimelineProps> = ({ onClose, isVisible = true }
       
       // Return the processed tweet
       return {
-        id: tweet.id,
+        id: String(tweet.id),
         text: retweet ? retweet.text : tweet.text,
         createdAt: tweet.created_at,
         author: {
-          id: author.id,
+          id: String(author.id),
           name: author.name,
           username: author.username,
           profileImageUrl: author.profile_image_url,
@@ -402,13 +406,19 @@ const HomeTimeline: React.FC<HomeTimelineProps> = ({ onClose, isVisible = true }
   // Handle tweet actions (like, retweet, etc.)
   const handleTweetAction = async (tweetId: string, action: string) => {
     try {
+      // Ensure tweetId is a string
+      const id = String(tweetId);
+      
+      // Log the action for debugging
+      console.log(`Performing ${action} on tweet ID: ${id}`);
+      
       const response = await fetch('/api/twitter/tweet-action', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          tweet_id: tweetId,
+          tweet_id: id,
           action,
         }),
       });
@@ -421,7 +431,7 @@ const HomeTimeline: React.FC<HomeTimelineProps> = ({ onClose, isVisible = true }
       // Update the UI optimistically
       setTweets(prev => {
         return prev.map(tweet => {
-          if (tweet.id === tweetId) {
+          if (tweet.id === id) {
             const metrics = { ...tweet.metrics };
             
             if (action === 'like') {

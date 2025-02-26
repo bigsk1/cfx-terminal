@@ -48,16 +48,35 @@ const TweetCard: React.FC<TweetCardProps> = ({ tweet, onAction }) => {
     ? formatDistanceToNow(new Date(tweet.createdAt), { addSuffix: true })
     : '';
 
+  // Create a proper Twitter URL that ensures the ID is treated as a string
+  const createTwitterUrl = (username: string, tweetId: string) => {
+    // Ensure the ID is a string to avoid JavaScript number precision issues
+    const id = String(tweetId);
+    
+    // Log the ID for debugging
+    console.log(`Creating Twitter URL for tweet ID: ${id}`);
+    
+    // Check if the ID ends with '00' which seems to be problematic
+    if (id.endsWith('00')) {
+      console.log(`Warning: Tweet ID ${id} ends with '00', which may cause issues with Twitter's API`);
+    }
+    
+    // Return the Twitter URL with the ID as a string
+    return `https://twitter.com/${username}/status/${id}`;
+  };
+
   // Handle like action
   const handleLike = async () => {
     const isLiked = tweet.metrics?.liked || false;
-    await onAction(tweet.id, isLiked ? 'unlike' : 'like');
+    // Ensure tweet ID is a string
+    await onAction(String(tweet.id), isLiked ? 'unlike' : 'like');
   };
 
   // Handle retweet action
   const handleRetweet = async () => {
     const isRetweeted = tweet.metrics?.retweeted || false;
-    await onAction(tweet.id, isRetweeted ? 'unretweet' : 'retweet');
+    // Ensure tweet ID is a string
+    await onAction(String(tweet.id), isRetweeted ? 'unretweet' : 'retweet');
   };
 
   // Handle reply submission
@@ -81,7 +100,7 @@ const TweetCard: React.FC<TweetCardProps> = ({ tweet, onAction }) => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          tweet_id: tweet.id,
+          tweet_id: String(tweet.id), // Ensure tweet ID is a string
           text: replyText,
         }),
       });
@@ -119,12 +138,27 @@ const TweetCard: React.FC<TweetCardProps> = ({ tweet, onAction }) => {
   const renderTweetText = () => {
     if (!tweet.text) return null;
     
-    let text = tweet.text;
+    const text = tweet.text;
     const entities = tweet.entities || {};
-    const parts = [];
+    const parts: Array<{
+      type: string;
+      content: string;
+      username?: string;
+      tag?: string;
+      url?: string;
+    }> = [];
     
     // Sort all entities by their indices
-    const allEntities = [];
+    const allEntities: Array<{
+      type: string;
+      start: number;
+      end: number;
+      username?: string;
+      tag?: string;
+      url?: string;
+      expanded_url?: string;
+      display_url?: string;
+    }> = [];
     
     if (entities.mentions) {
       entities.mentions.forEach(mention => {
@@ -169,19 +203,19 @@ const TweetCard: React.FC<TweetCardProps> = ({ tweet, onAction }) => {
       }
       
       // Add the entity
-      if (entity.type === 'mention') {
+      if (entity.type === 'mention' && entity.username) {
         parts.push({
           type: 'mention',
           content: `@${entity.username}`,
           username: entity.username,
         });
-      } else if (entity.type === 'hashtag') {
+      } else if (entity.type === 'hashtag' && entity.tag) {
         parts.push({
           type: 'hashtag',
           content: `#${entity.tag}`,
           tag: entity.tag,
         });
-      } else if (entity.type === 'url') {
+      } else if (entity.type === 'url' && entity.url) {
         parts.push({
           type: 'url',
           content: entity.display_url || entity.url,
@@ -206,7 +240,7 @@ const TweetCard: React.FC<TweetCardProps> = ({ tweet, onAction }) => {
         {parts.map((part, index) => {
           if (part.type === 'text') {
             return <React.Fragment key={index}>{part.content}</React.Fragment>;
-          } else if (part.type === 'mention') {
+          } else if (part.type === 'mention' && part.username) {
             return (
               <Link 
                 key={index} 
@@ -217,7 +251,7 @@ const TweetCard: React.FC<TweetCardProps> = ({ tweet, onAction }) => {
                 {part.content}
               </Link>
             );
-          } else if (part.type === 'hashtag') {
+          } else if (part.type === 'hashtag' && part.tag) {
             return (
               <Link 
                 key={index} 
@@ -228,7 +262,7 @@ const TweetCard: React.FC<TweetCardProps> = ({ tweet, onAction }) => {
                 {part.content}
               </Link>
             );
-          } else if (part.type === 'url') {
+          } else if (part.type === 'url' && part.url) {
             return (
               <Link 
                 key={index} 
@@ -286,7 +320,7 @@ const TweetCard: React.FC<TweetCardProps> = ({ tweet, onAction }) => {
             </Text>
           </Flex>
           <Link 
-            href={`https://twitter.com/${tweet.author.username}/status/${tweet.id}`} 
+            href={createTwitterUrl(tweet.author.username, tweet.id)} 
             isExternal 
             color="whiteAlpha.600"
             fontSize="xs"
@@ -348,7 +382,7 @@ const TweetCard: React.FC<TweetCardProps> = ({ tweet, onAction }) => {
                       >
                         <Text color="white" fontWeight="bold" mb={2}>Video content</Text>
                         <Link 
-                          href={`https://twitter.com/${tweet.author.username}/status/${tweet.id}`}
+                          href={createTwitterUrl(tweet.author.username, tweet.id)}
                           isExternal
                           _hover={{ textDecoration: 'none' }}
                         >
@@ -386,7 +420,7 @@ const TweetCard: React.FC<TweetCardProps> = ({ tweet, onAction }) => {
                     >
                       <Text color="white" fontWeight="bold" mb={2}>GIF content</Text>
                       <Link 
-                        href={`https://twitter.com/${tweet.author.username}/status/${tweet.id}`}
+                        href={createTwitterUrl(tweet.author.username, tweet.id)}
                         isExternal
                         _hover={{ textDecoration: 'none' }}
                       >
@@ -423,7 +457,7 @@ const TweetCard: React.FC<TweetCardProps> = ({ tweet, onAction }) => {
                     >
                       <Text color="white" fontWeight="bold" mb={2}>Media content</Text>
                       <Link 
-                        href={`https://twitter.com/${tweet.author.username}/status/${tweet.id}`}
+                        href={createTwitterUrl(tweet.author.username, tweet.id)}
                         isExternal
                         _hover={{ textDecoration: 'none' }}
                       >
@@ -511,7 +545,7 @@ const TweetCard: React.FC<TweetCardProps> = ({ tweet, onAction }) => {
                       alignItems="center"
                     >
                       <Link 
-                        href={`https://twitter.com/${tweet.quotedTweet.author.username}/status/${tweet.quotedTweet.id}`}
+                        href={createTwitterUrl(tweet.quotedTweet.author.username, tweet.quotedTweet.id)}
                         isExternal
                         _hover={{ textDecoration: 'none' }}
                       >
@@ -558,7 +592,7 @@ const TweetCard: React.FC<TweetCardProps> = ({ tweet, onAction }) => {
               size="sm"
               onClick={handleRetweet}
             />
-            {(tweet.metrics?.retweet_count > 0) && (
+            {tweet.metrics?.retweet_count !== undefined && tweet.metrics.retweet_count > 0 && (
               <Text ml={1} fontSize="sm" color="whiteAlpha.700">
                 {tweet.metrics.retweet_count}
               </Text>
@@ -573,7 +607,7 @@ const TweetCard: React.FC<TweetCardProps> = ({ tweet, onAction }) => {
               size="sm"
               onClick={handleLike}
             />
-            {(tweet.metrics?.like_count > 0) && (
+            {tweet.metrics?.like_count !== undefined && tweet.metrics.like_count > 0 && (
               <Text ml={1} fontSize="sm" color="whiteAlpha.700">
                 {tweet.metrics.like_count}
               </Text>
