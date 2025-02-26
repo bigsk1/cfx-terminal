@@ -15,6 +15,8 @@ import {
   CloseButton,
 } from '@chakra-ui/react';
 import { AttachmentIcon } from '@chakra-ui/icons';
+import { useCurrentUser } from '../../hooks/useCurrentUser';
+import { getAvatarUrl } from './utils/avatarUtils';
 
 interface TweetComposerProps {
   onTweetPosted: () => void;
@@ -35,6 +37,7 @@ const TweetComposer: React.FC<TweetComposerProps> = ({
   const [mediaPreview, setMediaPreview] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const toast = useToast();
+  const { user } = useCurrentUser();
 
   // Calculate remaining characters
   const remainingChars = MAX_TWEET_LENGTH - tweetText.length;
@@ -170,8 +173,8 @@ const TweetComposer: React.FC<TweetComposerProps> = ({
         <Avatar 
           size="md" 
           mr={3}
-          name="You"
-          src="https://images.weserv.nl/?url=https%3A%2F%2Funavatar.io%2Fyou&default=avatar"
+          name={user?.name || "You"}
+          src={user ? getAvatarUrl(user.profile_image_url, user.username) : undefined}
           bg="twitter.500"
           color="white"
           fontWeight="bold"

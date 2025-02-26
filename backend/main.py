@@ -1421,6 +1421,66 @@ def format_time_until(timestamp):
         minutes_until = max(1, int(seconds_until / 60))
         return f"{minutes_until} minute{'s' if minutes_until != 1 else ''}"
 
+@app.get("/api/twitter/user/me")
+async def get_current_user():
+    """
+    Get information about the authenticated Twitter user.
+    Returns username, profile image URL, and other basic information.
+    """
+    try:
+        # Check if Twitter credentials are available
+        twitter_api_key = os.environ.get("X_CONSUMER_KEY")
+        twitter_api_secret = os.environ.get("X_CONSUMER_SECRET")
+        twitter_access_token = os.environ.get("X_ACCESS_TOKEN")
+        twitter_access_secret = os.environ.get("X_ACCESS_TOKEN_SECRET")
+        
+        if not all([twitter_api_key, twitter_api_secret, twitter_access_token, twitter_access_secret]):
+            raise HTTPException(
+                status_code=400,
+                detail="Twitter API credentials not configured"
+            )
+        
+        # Initialize OAuth1 for API requests
+        auth = OAuth1(
+            twitter_api_key,
+            twitter_api_secret,
+            twitter_access_token,
+            twitter_access_secret
+        )
+        
+        # Get the authenticated user's information
+        user_response = requests.get(
+            "https://api.twitter.com/2/users/me",
+            auth=auth,
+            params={
+                "user.fields": "profile_image_url,username,name,verified"
+            }
+        )
+        user_response.raise_for_status()
+        user_data = user_response.json()
+        
+        if "data" not in user_data:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to get authenticated user information"
+            )
+        
+        # Return the user data
+        return user_data
+        
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Twitter API error: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Twitter API error: {str(e)}"
+        )
+    except Exception as e:
+        logger.error(f"Unexpected error: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Unexpected error: {str(e)}"
+        )
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000) 
