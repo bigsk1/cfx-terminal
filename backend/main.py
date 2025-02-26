@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, UploadFile, File
+from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Request, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -15,6 +15,7 @@ import uuid
 from pathlib import Path
 import logging
 import time
+import tweepy
 
 # Configure logging
 logging.basicConfig(
@@ -119,6 +120,21 @@ class ChatRequest(BaseModel):
     userName: Optional[str] = None
     model: Optional[str] = None  # Allow specifying which model to use
 
+class TimelineRequest(BaseModel):
+    count: int = 20
+    include_replies: bool = True
+    include_retweets: bool = True
+    cursor: Optional[str] = None
+
+class TweetActionRequest(BaseModel):
+    tweet_id: str
+    action: str  # "like", "retweet", "unretweet", "unlike"
+
+class ReplyTweetRequest(BaseModel):
+    tweet_id: str
+    text: str
+    image_url: Optional[str] = None
+
 class ImageGenerationRequest(BaseModel):
     prompt: str
     wide: bool = False
@@ -148,27 +164,49 @@ def get_client_and_model(model_name: Optional[str] = None):
 @app.get("/api/model-info", response_model=ModelInfoResponse)
 async def get_model_info():
     """Get information about the currently configured AI models"""
-    # Start with OpenAI models
-    available_models = [OPENAI_TEXT_MODEL]
-    
-    # Add other common OpenAI models if different from the default
-    common_openai_models = ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"]
-    for model in common_openai_models:
-        if model != OPENAI_TEXT_MODEL and model not in available_models:
-            available_models.append(model)
-    
-    # Add xAI model if available
-    xai_available = xai_client is not None
-    if xai_available:
-        available_models.append(XAI_TEXT_MODEL)
-    
-    return ModelInfoResponse(
-        text_model=OPENAI_TEXT_MODEL,
-        image_model=OPENAI_IMAGE_MODEL,
-        available_models=available_models,
-        default_model=OPENAI_TEXT_MODEL,
-        xai_available=xai_available
-    )
+    try:
+        # Log the environment variables being used
+        logger.info(f"Using text model from env: {OPENAI_TEXT_MODEL}")
+        logger.info(f"Using image model from env: {OPENAI_IMAGE_MODEL}")
+        if xai_client:
+            logger.info(f"Using xAI model from env: {XAI_TEXT_MODEL}")
+        
+        # Start with OpenAI models
+        available_models = [OPENAI_TEXT_MODEL]
+        
+        # Add other common OpenAI models if different from the default
+        common_openai_models = ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"]
+        for model in common_openai_models:
+            if model != OPENAI_TEXT_MODEL and model not in available_models:
+                available_models.append(model)
+        
+        # Add xAI model if available
+        xai_available = xai_client is not None
+        if xai_available:
+            available_models.append(XAI_TEXT_MODEL)
+        
+        # Check if OpenAI client is properly initialized
+        if not openai_client:
+            logger.error("OpenAI client is not properly initialized")
+            raise ValueError("OpenAI client is not properly initialized")
+        
+        response = ModelInfoResponse(
+            text_model=OPENAI_TEXT_MODEL,
+            image_model=OPENAI_IMAGE_MODEL,
+            available_models=available_models,
+            default_model=OPENAI_TEXT_MODEL,
+            xai_available=xai_available
+        )
+        
+        logger.info(f"Model info response: {response}")
+        return response
+        
+    except Exception as e:
+        logger.error(f"Error getting model info: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error getting model info: {str(e)}"
+        )
 
 @app.post("/api/craft-tweet", response_model=TweetResponse)
 async def craft_tweet(request: TweetRequest):
@@ -822,6 +860,318 @@ def upload_to_cloudflare_helper(file_data, filename="image", expiration="24h"):
     
     # Return the response JSON
     return response.json()
+
+@app.get("/api/twitter/home-timeline")
+async def get_home_timeline(count: int = 20, cursor: str = None):
+    """Get the user's Twitter home timeline"""
+    logger.info(f"Fetching Twitter home timeline")
+    logger.info(f"Parameters: count={count}, cursor={cursor}")
+    
+    # Check if Twitter API credentials are configured
+    if not all([
+        twitter_credentials["consumer_key"],
+        twitter_credentials["consumer_secret"],
+        twitter_credentials["access_token"],
+        twitter_credentials["access_token_secret"]
+    ]):
+        logger.error("Twitter API credentials not configured")
+        raise HTTPException(
+            status_code=500,
+            detail="Twitter API credentials not configured"
+        )
+    
+    # Initialize Twitter client with OAuth 2.0
+    client = tweepy.Client(
+        consumer_key=twitter_credentials["consumer_key"],
+        consumer_secret=twitter_credentials["consumer_secret"],
+        access_token=twitter_credentials["access_token"],
+        access_token_secret=twitter_credentials["access_token_secret"],
+        wait_on_rate_limit=False  # Don't wait on rate limit
+    )
+    
+    # Prepare parameters for the request
+    params = {
+        "max_results": count,
+        "tweet.fields": "created_at,public_metrics,entities,referenced_tweets,attachments",
+        "user.fields": "profile_image_url,verified",
+        "media.fields": "url,preview_image_url,type",
+        "expansions": "author_id,referenced_tweets.id,referenced_tweets.id.author_id,attachments.media_keys"
+    }
+    
+    if cursor:
+        params["pagination_token"] = cursor
+    
+    logger.info(f"Making Twitter API request with params: {params}")
+    
+    try:
+        # Make the request to Twitter API
+        response = client.get_home_timeline(**params)
+        
+        # Process the response
+        tweets_data = []
+        users_data = []
+        media_data = []
+        referenced_tweets_data = []
+        
+        if response.data:
+            tweets_data = response.data
+        
+        if response.includes:
+            if "users" in response.includes:
+                users_data = response.includes["users"]
+            if "media" in response.includes:
+                media_data = response.includes["media"]
+            if "tweets" in response.includes:
+                referenced_tweets_data = response.includes["tweets"]
+        
+        # Construct the response dictionary
+        response_dict = {
+            "data": tweets_data,
+            "includes": {
+                "users": users_data,
+                "media": media_data,
+                "tweets": referenced_tweets_data
+            },
+            "meta": response.meta
+        }
+        
+        return response_dict
+        
+    except tweepy.TooManyRequests as e:
+        # Handle rate limit exceeded
+        reset_time = getattr(e, 'reset', None)
+        reset_message = f" Reset at {reset_time}" if reset_time else ""
+        logger.error(f"Twitter API rate limit exceeded: {e}{reset_message}")
+        
+        # Return a 429 status code with a helpful message
+        raise HTTPException(
+            status_code=429,
+            detail="Twitter API rate limit exceeded. Please try again later."
+        )
+    except tweepy.Unauthorized as e:
+        # Handle unauthorized access
+        logger.error(f"Twitter API unauthorized access: {e}")
+        raise HTTPException(
+            status_code=401,
+            detail="Unauthorized access to Twitter API. Please check your credentials."
+        )
+    except Exception as e:
+        # Handle other exceptions
+        logger.error(f"Error fetching home timeline: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error fetching home timeline: {str(e)}"
+        )
+
+@app.post("/api/twitter/post-tweet")
+async def post_tweet(
+    request: Request,
+    text: str = Form(...),
+    media: UploadFile = None,
+    reply_to_tweet_id: str = Form(None),
+):
+    """
+    Post a tweet to Twitter.
+    """
+    try:
+        # Check if Twitter credentials are available
+        twitter_api_key = os.environ.get("X_CONSUMER_KEY")
+        twitter_api_secret = os.environ.get("X_CONSUMER_SECRET")
+        twitter_access_token = os.environ.get("X_ACCESS_TOKEN")
+        twitter_access_secret = os.environ.get("X_ACCESS_TOKEN_SECRET")
+        
+        if not all([twitter_api_key, twitter_api_secret, twitter_access_token, twitter_access_secret]):
+            raise HTTPException(
+                status_code=400,
+                detail="Twitter API credentials not configured"
+            )
+        
+        # Initialize Twitter client
+        auth = tweepy.OAuth1UserHandler(
+            twitter_api_key,
+            twitter_api_secret,
+            twitter_access_token,
+            twitter_access_secret
+        )
+        twitter_client = tweepy.API(auth)
+        
+        # Initialize Twitter client with OAuth 2.0 for API v2
+        client = tweepy.Client(
+            consumer_key=twitter_api_key,
+            consumer_secret=twitter_api_secret,
+            access_token=twitter_access_token,
+            access_token_secret=twitter_access_secret
+        )
+        
+        # Handle media upload if provided
+        media_id = None
+        if media:
+            # Read the file content
+            file_content = await media.read()
+            
+            # Upload media to Twitter
+            media_upload = twitter_client.media_upload(
+                filename=media.filename,
+                file=file_content
+            )
+            media_id = media_upload.media_id_string
+        
+        # Post the tweet
+        if media_id:
+            response = client.create_tweet(
+                text=text,
+                media_ids=[media_id],
+                in_reply_to_tweet_id=reply_to_tweet_id
+            )
+        else:
+            response = client.create_tweet(
+                text=text,
+                in_reply_to_tweet_id=reply_to_tweet_id
+            )
+        
+        # Return the tweet ID
+        return {"tweet_id": response.data["id"]}
+    
+    except tweepy.TweepyException as e:
+        logger.error(f"Twitter API error: {str(e)}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Twitter API error: {str(e)}"
+        )
+    except Exception as e:
+        logger.error(f"Error posting tweet: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error posting tweet: {str(e)}"
+        )
+
+@app.post("/api/twitter/reply")
+async def reply_to_tweet(request: Request):
+    """
+    Reply to a tweet.
+    """
+    try:
+        # Parse request body
+        body = await request.json()
+        tweet_id = body.get("tweet_id")
+        text = body.get("text")
+        
+        if not tweet_id or not text:
+            raise HTTPException(
+                status_code=400,
+                detail="Missing required parameters: tweet_id and text"
+            )
+        
+        # Check if Twitter credentials are available
+        twitter_api_key = os.environ.get("X_CONSUMER_KEY")
+        twitter_api_secret = os.environ.get("X_CONSUMER_SECRET")
+        twitter_access_token = os.environ.get("X_ACCESS_TOKEN")
+        twitter_access_secret = os.environ.get("X_ACCESS_TOKEN_SECRET")
+        
+        if not all([twitter_api_key, twitter_api_secret, twitter_access_token, twitter_access_secret]):
+            raise HTTPException(
+                status_code=400,
+                detail="Twitter API credentials not configured"
+            )
+        
+        # Initialize Twitter client with OAuth 2.0 for API v2
+        client = tweepy.Client(
+            consumer_key=twitter_api_key,
+            consumer_secret=twitter_api_secret,
+            access_token=twitter_access_token,
+            access_token_secret=twitter_access_secret
+        )
+        
+        # Post the reply
+        response = client.create_tweet(
+            text=text,
+            in_reply_to_tweet_id=tweet_id
+        )
+        
+        # Return the tweet ID
+        return {"tweet_id": response.data["id"]}
+    
+    except tweepy.TweepyException as e:
+        logger.error(f"Twitter API error: {str(e)}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Twitter API error: {str(e)}"
+        )
+    except Exception as e:
+        logger.error(f"Error replying to tweet: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error replying to tweet: {str(e)}"
+        )
+
+@app.post("/api/twitter/tweet-action")
+async def tweet_action(request: Request):
+    """
+    Perform an action on a tweet (like, retweet, etc.).
+    """
+    try:
+        # Parse request body
+        body = await request.json()
+        tweet_id = body.get("tweet_id")
+        action = body.get("action")
+        
+        if not tweet_id or not action:
+            raise HTTPException(
+                status_code=400,
+                detail="Missing required parameters: tweet_id and action"
+            )
+        
+        # Check if Twitter credentials are available
+        twitter_api_key = os.environ.get("X_CONSUMER_KEY")
+        twitter_api_secret = os.environ.get("X_CONSUMER_SECRET")
+        twitter_access_token = os.environ.get("X_ACCESS_TOKEN")
+        twitter_access_secret = os.environ.get("X_ACCESS_TOKEN_SECRET")
+        
+        if not all([twitter_api_key, twitter_api_secret, twitter_access_token, twitter_access_secret]):
+            raise HTTPException(
+                status_code=400,
+                detail="Twitter API credentials not configured"
+            )
+        
+        # Initialize Twitter client with OAuth 2.0 for API v2
+        client = tweepy.Client(
+            consumer_key=twitter_api_key,
+            consumer_secret=twitter_api_secret,
+            access_token=twitter_access_token,
+            access_token_secret=twitter_access_secret
+        )
+        
+        # Perform the requested action
+        if action == "like":
+            response = client.like(tweet_id)
+            return {"status": "liked"}
+        elif action == "unlike":
+            response = client.unlike(tweet_id)
+            return {"status": "unliked"}
+        elif action == "retweet":
+            response = client.retweet(tweet_id)
+            return {"status": "retweeted"}
+        elif action == "unretweet":
+            response = client.unretweet(tweet_id)
+            return {"status": "unretweeted"}
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported action: {action}"
+            )
+    
+    except tweepy.TweepyException as e:
+        logger.error(f"Twitter API error: {str(e)}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Twitter API error: {str(e)}"
+        )
+    except Exception as e:
+        logger.error(f"Error performing tweet action: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error performing tweet action: {str(e)}"
+        )
 
 if __name__ == "__main__":
     import uvicorn

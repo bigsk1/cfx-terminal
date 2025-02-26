@@ -49,6 +49,7 @@ import {
   EditIcon,
   StarIcon,
 } from "@chakra-ui/icons";
+import HomeTimeline from './components/twitter/HomeTimeline';
 
 // Define Message type for better type safety
 interface Message {
@@ -158,6 +159,7 @@ export default function Home() {
     has_more: false
   });
   const [userName, setUserName] = useState<string | null>(null);
+  const [activeTabIndex, setActiveTabIndex] = useState(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const toast = useToast();
   const [selectedThreadIndex, setSelectedThreadIndex] = useState<number | null>(null);
@@ -1346,13 +1348,19 @@ export default function Home() {
               flexDirection="column"
               className="mobile-full-width"
             >
-              <Tabs variant="soft-rounded" colorScheme="purple" size={{ base: "xs", md: "sm" }}>
+              <Tabs 
+                variant="soft-rounded" 
+                colorScheme="purple" 
+                size={{ base: "xs", md: "sm" }}
+                onChange={(index) => setActiveTabIndex(index)}
+              >
                 <TabList className="mobile-gap-1">
                   <Tab>Tweet</Tab>
                   <Tab>Image</Tab>
                   <Tab>Thread</Tab>
                   <Tab>History</Tab>
                   <Tab>Gallery</Tab>
+                  <Tab>Twitter</Tab>
                 </TabList>
                 
                 <TabPanels flex="1">
@@ -2217,6 +2225,13 @@ export default function Home() {
                         </>
                       )}
                     </VStack>
+                  </TabPanel>
+                  
+                  {/* Twitter Home Timeline tab */}
+                  <TabPanel>
+                    <Box height="calc(100vh - 100px)" overflow="hidden">
+                      <HomeTimeline isVisible={activeTabIndex === 5} />
+                    </Box>
                   </TabPanel>
                 </TabPanels>
               </Tabs>
