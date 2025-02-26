@@ -9,30 +9,13 @@ import {
   Button,
   useToast,
   Flex,
-  Divider,
   IconButton,
-  Avatar,
   HStack,
-  Badge,
-  Image,
-  Link,
-  Menu,
-  MenuButton,
-  MenuList,
-  MenuItem,
-  Heading,
 } from '@chakra-ui/react';
 import {
   RepeatIcon,
-  ChatIcon,
-  StarIcon,
-  ChevronDownIcon,
-  ExternalLinkIcon,
-  AttachmentIcon,
-  CloseIcon,
-  InfoIcon,
 } from '@chakra-ui/icons';
-import { Tweet } from './types';
+import { Tweet, TweetMedia } from './types';
 import TweetCard from './TweetCard';
 import TweetComposer from './TweetComposer';
 
@@ -197,23 +180,21 @@ const HomeTimeline: React.FC<HomeTimelineProps> = ({ onClose, isVisible = true }
     if (!data.data || !Array.isArray(data.data)) {
       return [];
     }
-
-    // Create a map of users for quick lookup
+    
     const usersMap = new Map();
     if (data.includes?.users) {
       data.includes.users.forEach((user: any) => {
         usersMap.set(user.id, user);
       });
     }
-
-    // Create a map of media for quick lookup
+    
     const mediaMap = new Map();
     if (data.includes?.media) {
       data.includes.media.forEach((media: any) => {
         mediaMap.set(media.media_key, media);
       });
     }
-
+    
     // Create a map of referenced tweets for quick lookup
     const tweetsMap = new Map();
     data.data.forEach((tweet: any) => {
@@ -235,7 +216,6 @@ const HomeTimeline: React.FC<HomeTimelineProps> = ({ onClose, isVisible = true }
       let author = usersMap.get(tweet.author_id) || {};
       
       // Create proper profile image URL
-      const authorUsername = author.username || '';
       // Use the actual profile_image_url if available, otherwise use a fallback
       const profileImageUrl = author.profile_image_url || '';
       
@@ -246,7 +226,7 @@ const HomeTimeline: React.FC<HomeTimelineProps> = ({ onClose, isVisible = true }
         .filter(Boolean)
         .map((m: any) => {
           // Enhanced media processing
-          const mediaItem = {
+          const mediaItem: TweetMedia = {
             type: m.type,
             url: m.url || m.preview_image_url,
             preview_image_url: m.preview_image_url,
@@ -272,7 +252,10 @@ const HomeTimeline: React.FC<HomeTimelineProps> = ({ onClose, isVisible = true }
             // Use the best variant URL if available
             if (sortedVariants.length > 0 && sortedVariants[0].url) {
               mediaItem.url = sortedVariants[0].url;
-              mediaItem.content_type = sortedVariants[0].content_type;
+              // Ensure mediaItem has content_type property before assigning
+              if (sortedVariants[0].content_type) {
+                mediaItem.content_type = sortedVariants[0].content_type;
+              }
             }
           }
           
@@ -333,7 +316,7 @@ const HomeTimeline: React.FC<HomeTimelineProps> = ({ onClose, isVisible = true }
           .filter(Boolean)
           .map((m: any) => {
             // Enhanced media processing for quoted tweets
-            const mediaItem = {
+            const mediaItem: TweetMedia = {
               type: m.type,
               url: m.url || m.preview_image_url,
               preview_image_url: m.preview_image_url,
@@ -359,7 +342,10 @@ const HomeTimeline: React.FC<HomeTimelineProps> = ({ onClose, isVisible = true }
               // Use the best variant URL if available
               if (sortedVariants.length > 0 && sortedVariants[0].url) {
                 mediaItem.url = sortedVariants[0].url;
-                mediaItem.content_type = sortedVariants[0].content_type;
+                // Ensure mediaItem has content_type property before assigning
+                if (sortedVariants[0].content_type) {
+                  mediaItem.content_type = sortedVariants[0].content_type;
+                }
               }
             }
             

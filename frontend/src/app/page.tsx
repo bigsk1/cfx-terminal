@@ -1353,6 +1353,7 @@ export default function Home() {
                 colorScheme="purple" 
                 size={{ base: "xs", md: "sm" }}
                 onChange={(index) => setActiveTabIndex(index)}
+                defaultIndex={0}
               >
                 <TabList className="mobile-gap-1">
                   <Tab>Tweet</Tab>
