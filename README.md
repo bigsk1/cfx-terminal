@@ -21,6 +21,9 @@ to your cloudflare images gallery.
 
 ---
 
+![Preview](frontend/public/images/tweet-preview.png)
+---
+
 ![Thread](frontend/public/images/thread.png)
 
 ## Tech Stack

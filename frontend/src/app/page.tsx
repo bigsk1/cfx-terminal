@@ -694,7 +694,7 @@ export default function Home() {
     try {
       const postMessage = { 
         role: 'user', 
-        content: 'Post this tweet to Twitter' 
+        content: 'Post this tweet to X' 
       };
       setMessages(prev => [...prev, postMessage]);
       
@@ -1509,7 +1509,7 @@ export default function Home() {
                   <Tab>Thread</Tab>
                   <Tab>History</Tab>
                   <Tab>Gallery</Tab>
-                  <Tab>Twitter</Tab>
+                  <Tab>X-Home</Tab>
                 </TabList>
                 
                 <TabPanels flex="1">
@@ -2209,7 +2209,7 @@ export default function Home() {
                         <HStack align="flex-start" spacing={3}>
                           <InfoIcon color="blue.300" mt={1} />
                           <VStack align="start" spacing={1}>
-                            <Text fontWeight="semibold">Twitter Thread Tips</Text>
+                            <Text fontWeight="semibold">X Thread Tips</Text>
                             <Text fontSize="sm">
                               • First tweet should be concise (under 280 chars) with a strong hook
                             </Text>

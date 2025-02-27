@@ -13,7 +13,7 @@ export default function RootLayout({
     <html lang="en">
       <head>
         <title>CFX-Terminal</title>
-        <meta name="description" content="AI-powered Twitter command center" />
+        <meta name="description" content="AI-powered X command center" />
       </head>
       <body>
         <ChakraProvider theme={theme}>

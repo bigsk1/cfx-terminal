@@ -11,7 +11,7 @@ echo "
                                                                                              
 "
 echo "Starting CFX-Terminal with Docker..."
-echo "AI-Powered X (Twitter) Client"
+echo "AI-Powered X (X) Client"
 echo "----------------------------"
 
 # Check if .env file exists

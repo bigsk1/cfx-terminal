@@ -24,12 +24,13 @@ export function useCurrentUser() {
         if (cachedUser) {
           try {
             const parsedUser = JSON.parse(cachedUser);
-            // Check if the cached data is recent (less than 1 hour old)
+            // Check if the cached data is recent (less than 30 days old)
             const cacheTime = localStorage.getItem('twitter-current-user-time');
             if (cacheTime) {
               const cacheAge = Date.now() - parseInt(cacheTime, 10);
-              // If cache is less than 1 hour old, use it
-              if (cacheAge < 60 * 60 * 1000) {
+              // If cache is less than 30 days old, use it
+              // 30 days = 30 * 24 * 60 * 60 * 1000 milliseconds
+              if (cacheAge < 30 * 24 * 60 * 60 * 1000) {
                 setUser(parsedUser);
                 setIsLoading(false);
                 return;
