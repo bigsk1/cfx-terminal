@@ -240,7 +240,27 @@ async def craft_tweet(request: TweetRequest):
         model = request.model if request.model else OPENAI_TEXT_MODEL
         
         # Create a system message that personalizes the tweet crafting
-        system_message = f"You are a helpful AI assistant that crafts engaging tweets. IMPORTANT:Don't use hashtags or sound like an AI. Do not wrap youtube urls in a link tag like this [Link](...) but instead just provide the youtube url."
+        system_message = f"""You are a professional social media expert that crafts engaging tweets. 
+
+IMPORTANT TWITTER GUIDELINES:
+- Character limits: Regular tweets are limited to 280 characters. Premium Plus users can post up to 25,000 characters per tweet.
+- Thread structure: Each post in a thread must fit within its own character limit.
+- First impression: Only the first 280 characters of any tweet will be visible in the timeline without clicking "Show more".
+
+TWEET CRAFTING BEST PRACTICES:
+1. First tweet in a thread should be concise (under 280 chars) with a strong hook to encourage engagement.
+2. Use a clear structure in threads - introduce a problem, explore solutions, and end with a call to action.
+3. For longer content, break it into logical segments across thread tweets.
+4. Avoid numbering long threads (e.g., 1/20) as this can discourage engagement.
+5. Don't use hashtags or sound like an AI.
+6. Do not wrap YouTube URLs in a link tag like [Link](...) but instead just provide the YouTube URL.
+7. For multi-tweet threads, maintain narrative flow between tweets.
+8. Make each tweet in a thread able to stand on its own while contributing to the overall message.
+
+OUTPUT FORMAT:
+- For single tweets: Just write the tweet text.
+- For threads: Write the main tweet, then add "Thread:" on a new line, followed by each thread tweet separated by double newlines.
+"""
         if request.userName:
             system_message += f"You are helping {request.userName} create a tweet. "
         
@@ -832,7 +852,19 @@ def split_into_threads(text, limit=280):
 
 # Improved function to parse tweet thread from AI response
 def parse_tweet_thread(response: str) -> Tuple[str, List[str]]:
-    # Check if the response contains numbered tweets
+    """
+    Parse the AI response into a main tweet and thread tweets.
+    
+    This function handles various formats of AI responses and ensures tweets
+    adhere to Twitter's character limits while maintaining logical structure.
+    
+    Args:
+        response: The raw text response from the AI
+        
+    Returns:
+        A tuple containing (main_tweet, list_of_thread_tweets)
+    """
+    # Check if the response contains numbered tweets (1/5, 1., etc.)
     numbered_pattern = re.compile(r'(?:^|\n)(\d+\/\d+|\d+\.|\(\d+\)|\d+\)|\d+\:)\s*(.*?)(?=(?:\n\d+\/\d+|\n\d+\.|\n\(\d+\)|\n\d+\)|\n\d+\:|\Z))', re.DOTALL)
     numbered_matches = numbered_pattern.findall(response)
     
@@ -840,9 +872,27 @@ def parse_tweet_thread(response: str) -> Tuple[str, List[str]]:
         # Extract the first tweet and the rest as thread
         main_tweet = numbered_matches[0][1].strip()
         threads = [match[1].strip() for match in numbered_matches[1:]]
+        
+        # Ensure main tweet is within character limit
+        if len(main_tweet) > 280:
+            # If too long, try to find a natural breakpoint
+            sentences = re.split(r'(?<=[.!?])\s+', main_tweet)
+            if len(sentences[0]) <= 280:
+                # Use first sentence as main tweet
+                main_tweet = sentences[0]
+                # Add the rest to the beginning of the first thread tweet
+                remaining = " ".join(sentences[1:])
+                if threads:
+                    threads[0] = remaining + "\n\n" + threads[0]
+                else:
+                    threads = [remaining]
+            else:
+                # If first sentence is too long, truncate with ellipsis
+                main_tweet = main_tweet[:277] + "..."
+        
         return main_tweet, threads
     
-    # Check for "Thread:" or "Thread" marker
+    # Check for "Thread:" or "Thread" marker (our preferred format)
     thread_pattern = re.compile(r'(?:^|\n)(?:Thread:|Thread)(?:\s*\n+)(.*)', re.DOTALL)
     thread_match = thread_pattern.search(response)
     
@@ -854,50 +904,109 @@ def parse_tweet_thread(response: str) -> Tuple[str, List[str]]:
         main_tweet_match = re.search(r'^(.*?)(?:\n+(?:Thread:|Thread))', response, re.DOTALL)
         main_tweet = main_tweet_match.group(1).strip() if main_tweet_match else ""
         
-        # Split the thread into individual tweets
-        # Look for tweet separators like multiple newlines, dashes, or numbered markers
-        tweet_separators = re.compile(r'\n\s*\n+|\n---+\n|\n\d+\/\d+\s*\n|\n\d+\.\s*\n')
-        threads = [tweet.strip() for tweet in tweet_separators.split(thread_text) if tweet.strip()]
+        # Ensure main tweet is within character limit
+        if len(main_tweet) > 280:
+            # If too long, try to find a natural breakpoint
+            sentences = re.split(r'(?<=[.!?])\s+', main_tweet)
+            if len(sentences[0]) <= 280:
+                main_tweet = sentences[0]
+            else:
+                main_tweet = main_tweet[:277] + "..."
         
-        return main_tweet, threads
+        # Split the thread into individual tweets by double newlines
+        # This preserves paragraph structure within each tweet
+        thread_tweets = [tweet.strip() for tweet in re.split(r'\n\s*\n+', thread_text) if tweet.strip()]
+        
+        # Process each thread tweet to ensure it's within limits
+        processed_threads = []
+        for tweet in thread_tweets:
+            if len(tweet) <= 280:
+                processed_threads.append(tweet)
+            else:
+                # For longer tweets, try to preserve paragraph structure
+                paragraphs = [p.strip() for p in tweet.split('\n\n') if p.strip()]
+                current_tweet = ""
+                
+                for para in paragraphs:
+                    # If adding this paragraph would exceed the limit, start a new thread tweet
+                    if len(current_tweet) + len(para) + (2 if current_tweet else 0) > 280:
+                        if current_tweet:
+                            processed_threads.append(current_tweet)
+                            current_tweet = para
+                        else:
+                            # If a single paragraph is too long, split it by sentences
+                            sentences = re.split(r'(?<=[.!?])\s+', para)
+                            current_sentence_group = ""
+                            
+                            for sentence in sentences:
+                                if len(current_sentence_group) + len(sentence) + (1 if current_sentence_group else 0) <= 280:
+                                    if current_sentence_group:
+                                        current_sentence_group += " " + sentence
+                                    else:
+                                        current_sentence_group = sentence
+                                else:
+                                    processed_threads.append(current_sentence_group)
+                                    current_sentence_group = sentence
+                            
+                            if current_sentence_group:
+                                current_tweet = current_sentence_group
+                    else:
+                        # Add paragraph to current tweet with spacing
+                        if current_tweet:
+                            current_tweet += "\n\n" + para
+                        else:
+                            current_tweet = para
+                
+                # Add the last tweet if there's anything left
+                if current_tweet:
+                    processed_threads.append(current_tweet)
+        
+        return main_tweet, processed_threads
     
     # If no thread markers found, check if the text is too long for a single tweet
     if len(response) > 280:
-        # Try to split by double newlines first to preserve paragraph structure
+        # Try to split by paragraphs first to preserve structure
         paragraphs = [p.strip() for p in response.split('\n\n') if p.strip()]
         
         if paragraphs:
             # Use the first paragraph as the main tweet if it's under the limit
             main_tweet = paragraphs[0]
             
-            # If the main tweet is too long, use split_into_threads function
+            # If the main tweet is too long, try to use the first sentence
             if len(main_tweet) > 280:
-                all_threads = split_into_threads(response)
-                if all_threads:
-                    return all_threads[0], all_threads[1:]
-                return response[:277] + "...", []
+                sentences = re.split(r'(?<=[.!?])\s+', main_tweet)
+                if len(sentences[0]) <= 280:
+                    main_tweet = sentences[0]
+                    # Start the thread with the remaining sentences of the first paragraph
+                    remaining_sentences = " ".join(sentences[1:])
+                    if remaining_sentences:
+                        paragraphs[0] = remaining_sentences
+                    else:
+                        paragraphs.pop(0)
+                else:
+                    # If first sentence is too long, truncate with ellipsis
+                    main_tweet = main_tweet[:277] + "..."
+                    paragraphs.pop(0)  # Remove the first paragraph as we've used it
+            else:
+                paragraphs.pop(0)  # Remove the first paragraph as we've used it
             
-            # Combine remaining paragraphs into threads, being careful not to create too many
-            remaining_text = "\n\n".join(paragraphs[1:]) if len(paragraphs) > 1 else ""
-            
-            if not remaining_text:
-                return main_tweet, []
-                
-            # If remaining text is short enough, keep it as a single thread
-            if len(remaining_text) <= 280:
-                return main_tweet, [remaining_text]
-                
-            # Otherwise, use a more conservative approach to split the remaining text
-            # Try to keep paragraphs together when possible
+            # Process remaining paragraphs into thread tweets
             threads = []
             current_thread = ""
             
-            for para in paragraphs[1:]:
+            for para in paragraphs:
                 # If adding this paragraph would exceed the limit, start a new thread
-                if len(current_thread) + len(para) + 2 > 280:  # +2 for newline chars
+                if len(current_thread) + len(para) + (2 if current_thread else 0) > 280:
                     if current_thread:
-                        threads.append(current_thread.strip())
-                    current_thread = para
+                        threads.append(current_thread)
+                    
+                    # If the paragraph itself is too long, split it further
+                    if len(para) > 280:
+                        para_threads = split_into_threads(para, 280)
+                        threads.extend(para_threads)
+                        current_thread = ""
+                    else:
+                        current_thread = para
                 else:
                     # Add paragraph to current thread with spacing
                     if current_thread:
@@ -907,7 +1016,7 @@ def parse_tweet_thread(response: str) -> Tuple[str, List[str]]:
             
             # Add the last thread if there's anything left
             if current_thread:
-                threads.append(current_thread.strip())
+                threads.append(current_thread)
                 
             return main_tweet, threads
     
@@ -1389,7 +1498,10 @@ async def reply_to_tweet(request: Request):
         
     except tweepy.TweepyException as e:
         logger.error(f"Twitter API error: {str(e)}")
-        raise HTTPException(status_code=400, detail=f"Twitter API error: {str(e)}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Twitter API error: {str(e)}"
+        )
         
     except Exception as e:
         logger.error(f"Error replying to tweet: {str(e)}")

@@ -8,33 +8,41 @@ import {
   Flex,
   Input,
   Text,
+  Textarea,
   VStack,
   HStack,
-  Textarea,
-  Image,
-  IconButton,
   useToast,
   Tabs,
   TabList,
   TabPanels,
   Tab,
   TabPanel,
+  Select,
+  Spinner,
   Badge,
+  Divider,
+  IconButton,
+  Tooltip,
   Switch,
   FormControl,
   FormLabel,
-  Divider,
-  Select,
-  Tooltip,
-  Spinner,
-  UnorderedList,
-  ListItem,
-  OrderedList,
   SimpleGrid,
+  Image as ChakraImage,
   Menu,
   MenuButton,
   MenuList,
   MenuItem,
+  UnorderedList,
+  ListItem,
+  OrderedList,
+  Progress,
+  Modal,
+  ModalOverlay,
+  ModalContent,
+  ModalHeader,
+  ModalFooter,
+  ModalBody,
+  ModalCloseButton,
 } from "@chakra-ui/react";
 import {
   AddIcon,
@@ -116,7 +124,7 @@ const TweetPreviewImage = ({
           <Spinner size="md" color="#2cb67d" />
         </Box>
       )}
-      <Image 
+      <ChakraImage 
         src={url} 
         alt="Tweet image" 
         borderRadius="md"
@@ -152,17 +160,14 @@ const TweetPreviewImage = ({
 export default function Home() {
   // State for chat
   const [messages, setMessages] = useState<Message[]>([
-    {
-      role: "assistant",
-      content: "Welcome to CFX-Terminal! I'm here to help you craft tweets and engage with your audience. How can I assist you today?",
-    },
+    { role: 'system', content: 'Welcome to CFX-Terminal. How can I help craft your tweet today?' }
   ]);
   const [input, setInput] = useState('');
-  const [_isLoading, _setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const [tweetText, setTweetText] = useState('');
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [imagePrompt, setImagePrompt] = useState('');
-  const [_includeImage, _setIncludeImage] = useState(false);
+  const [includeImage, setIncludeImage] = useState(false);
   const [wideImage, setWideImage] = useState(false);
   const [threads, setThreads] = useState<string[]>([]);
   const [threadImages, setThreadImages] = useState<(string | null)[]>([]);
@@ -170,20 +175,20 @@ export default function Home() {
   const [videoPreview, setVideoPreview] = useState<{ url: string, tweetIndex: number } | null>(null);
   const [selectedModel, setSelectedModel] = useState<string>('');
   const [availableModels, setAvailableModels] = useState<string[]>([]);
-  const [_defaultModel, _setDefaultModel] = useState<string>('');
+  const [defaultModel, setDefaultModel] = useState<string>('');
   const [imageModel, setImageModel] = useState<string>('');
-  const [_xaiAvailable, _setXaiAvailable] = useState<boolean>(false);
+  const [xaiAvailable, setXaiAvailable] = useState<boolean>(false);
   const [cloudflareImages, setCloudflareImages] = useState<CloudflareImage[]>([]);
-  const [_cloudflareImagesPage, _setCloudflareImagesPage] = useState(1);
-  const [_hasMoreCloudflareImages, _setHasMoreCloudflareImages] = useState(true);
-  const [_isLoadingCloudflareImages, _setIsLoadingCloudflareImages] = useState(false);
-  const [_tweetHistory, _setTweetHistory] = useState<TweetHistoryItem[]>([]);
-  const [_homeTimeline, _setHomeTimeline] = useState<any>(null);
-  const [_isLoadingTimeline, _setIsLoadingTimeline] = useState(false);
-  const [_timelineCursor, _setTimelineCursor] = useState<string | null>(null);
-  const [_hasMoreTweets, _setHasMoreTweets] = useState(true);
-  const [_twitterUser, _setTwitterUser] = useState<any>(null);
-  const [_isPostingTweet, _setIsPostingTweet] = useState(false);
+  const [cloudflareImagesPage, setCloudflareImagesPage] = useState(1);
+  const [hasMoreCloudflareImages, setHasMoreCloudflareImages] = useState(true);
+  const [isLoadingCloudflareImages, setIsLoadingCloudflareImages] = useState(false);
+  const [tweetHistory, setTweetHistory] = useState<TweetHistoryItem[]>([]);
+  const [homeTimeline, setHomeTimeline] = useState<any>(null);
+  const [isLoadingTimeline, setIsLoadingTimeline] = useState(false);
+  const [timelineCursor, setTimelineCursor] = useState<string | null>(null);
+  const [hasMoreTweets, setHasMoreTweets] = useState(true);
+  const [twitterUser, setTwitterUser] = useState<any>(null);
+  const [isPostingTweet, setIsPostingTweet] = useState(false);
   const [isChatMode, setIsChatMode] = useState(false);
   const [postedTweets, setPostedTweets] = useState<Array<{id: string, text: string, timestamp: string, threadIds: string[]}>>([]);
   const [cloudflareImagesPagination, setCloudflareImagesPagination] = useState({
@@ -1150,7 +1155,7 @@ export default function Home() {
       return (
         <VStack align="stretch" spacing={2}>
           <Text>{message.content}</Text>
-          <Image 
+          <ChakraImage 
             src={message.imageUrl} 
             alt="Generated image" 
             borderRadius="md"
@@ -1537,16 +1542,6 @@ export default function Home() {
                           bg="blackAlpha.500"
                           position="relative"
                         >
-                          {/* Character count badge for main tweet in Tweet Preview */}
-                          <Badge
-                            position="absolute"
-                            top={3}
-                            right={3}
-                            colorScheme={tweetText.length > 280 ? "red" : tweetText.length > 240 ? "yellow" : "green"}
-                            zIndex={1}
-                          >
-                            {tweetText.length}/280
-                          </Badge>
                           <HStack mb={2}>
                             <Box 
                               width="40px" 
@@ -1653,7 +1648,7 @@ export default function Home() {
                           {/* Main tweet image */}
                           {imageUrl && (
                             <Box mt={2} borderRadius="md" overflow="hidden">
-                              <Image 
+                              <ChakraImage 
                                 src={imageUrl} 
                                 alt="Tweet image" 
                                 borderRadius="md" 
@@ -1677,6 +1672,10 @@ export default function Home() {
                               <Text fontSize="sm">Likes</Text>
                             </HStack>
                           </HStack>
+                          
+                          <Badge colorScheme="red" position="absolute" top={3} right={3}>
+                            {tweetText.length}/280
+                          </Badge>
                         </Box>
                         
                         {/* Thread Tweets */}
@@ -1711,10 +1710,9 @@ export default function Home() {
                                     bg="blackAlpha.500"
                                     position="relative"
                                   >
-                                    {/* Character count badge for thread tweets in Tweet Preview */}
                                     <Badge
                                       position="absolute"
-                                      top={3}
+                                      bottom={3}
                                       right={3}
                                       colorScheme={thread.length > 280 ? "red" : thread.length > 240 ? "yellow" : "green"}
                                       zIndex={1}
@@ -1738,32 +1736,30 @@ export default function Home() {
                                         <Text fontSize="sm" color="whiteAlpha.700">@your_handle</Text>
                                       </VStack>
                                       
-                                      {/* Only show thread tweet control buttons in Thread View tab */}
-                                      {activeTabIndex === 1 && (
-                                        <HStack ml="auto" zIndex={2}>
-                                          <IconButton
-                                            aria-label="Move up"
-                                            icon={<ArrowUpIcon />}
-                                            size="xs"
-                                            isDisabled={index === 0}
-                                            onClick={() => moveThreadTweetUp(index)}
-                                          />
-                                          <IconButton
-                                            aria-label="Move down"
-                                            icon={<ArrowDownIcon />}
-                                            size="xs"
-                                            isDisabled={index === threads.length - 1}
-                                            onClick={() => moveThreadTweetDown(index)}
-                                          />
-                                          <IconButton
-                                            aria-label="Remove thread tweet"
-                                            icon={<DeleteIcon />}
-                                            size="xs"
-                                            colorScheme="red"
-                                            onClick={() => removeThreadTweet(index)}
-                                          />
-                                        </HStack>
-                                      )}
+                                      {/* Add thread tweet control buttons */}
+                                      <HStack ml="auto" zIndex={2}>
+                                        <IconButton
+                                          aria-label="Move up"
+                                          icon={<ArrowUpIcon />}
+                                          size="xs"
+                                          isDisabled={index === 0}
+                                          onClick={() => moveThreadTweetUp(index)}
+                                        />
+                                        <IconButton
+                                          aria-label="Move down"
+                                          icon={<ArrowDownIcon />}
+                                          size="xs"
+                                          isDisabled={index === threads.length - 1}
+                                          onClick={() => moveThreadTweetDown(index)}
+                                        />
+                                        <IconButton
+                                          aria-label="Remove thread tweet"
+                                          icon={<DeleteIcon />}
+                                          size="xs"
+                                          colorScheme="red"
+                                          onClick={() => removeThreadTweet(index)}
+                                        />
+                                      </HStack>
                                     </HStack>
                                     
                                     <Box position="relative">
@@ -1854,7 +1850,7 @@ export default function Home() {
                                     {/* Thread tweet image */}
                                     {threadImages[index] && (
                                       <Box mt={2} borderRadius="md" overflow="hidden">
-                                        <Image 
+                                        <ChakraImage 
                                           src={threadImages[index] as string} 
                                           alt={`Thread image ${index + 1}`} 
                                           borderRadius="md" 
@@ -1878,6 +1874,10 @@ export default function Home() {
                                         <Text fontSize="sm">Likes</Text>
                                       </HStack>
                                     </HStack>
+                                    
+                                    <Badge colorScheme="red" position="absolute" top={3} right={3}>
+                                      {thread.length}/280
+                                    </Badge>
                                   </Box>
                                   
                                   {/* Thread connector line for next tweet */}
@@ -1993,7 +1993,7 @@ export default function Home() {
                           borderColor="whiteAlpha.300"
                           className="image-card"
                         >
-                          <Image 
+                          <ChakraImage 
                             src={imageUrl} 
                             alt="Generated image" 
                             width="100%" 
@@ -2080,7 +2080,7 @@ export default function Home() {
                                 bg="blackAlpha.400"
                                 className="image-card"
                               >
-                                <Image 
+                                <ChakraImage 
                                   src={image.url} 
                                   alt={`Generated image ${index}`}
                                   width="100%"
@@ -2163,7 +2163,7 @@ export default function Home() {
                               • First tweet should be concise (under 280 chars) with a strong hook
                             </Text>
                             <Text fontSize="sm">
-                              • Only the first 280 characters of any tweet are visible without clicking &quot;Show more&quot;
+                              • Only the first 280 characters of any tweet are visible without clicking "Show more"
                             </Text>
                             <Text fontSize="sm">
                               • Premium Plus users can post up to 25,000 characters per tweet
@@ -2296,7 +2296,6 @@ export default function Home() {
                               position="relative"
                               zIndex={1}
                             >
-                              {/* Character count badge for thread tweets in Thread View */}
                               <Badge
                                 position="absolute"
                                 bottom={3}
@@ -2424,7 +2423,7 @@ export default function Home() {
                                           border="1px solid"
                                           borderColor="whiteAlpha.300"
                                         >
-                                          <Image 
+                                          <ChakraImage 
                                             src={image.url} 
                                             alt={`Generated image ${imgIndex}`}
                                             width="100%"
@@ -2446,7 +2445,7 @@ export default function Home() {
                                           border="1px solid"
                                           borderColor="whiteAlpha.300"
                                         >
-                                          <Image 
+                                          <ChakraImage 
                                             src={image.url} 
                                             alt={`Cloudflare image ${image.id}`}
                                             width="100%"
@@ -2548,7 +2547,7 @@ export default function Home() {
                               border="1px solid"
                               borderColor="whiteAlpha.300"
                             >
-                              <Image 
+                              <ChakraImage 
                                 src={image.url} 
                                 alt={`Generated image ${imgIndex}`}
                                 width="100%"
@@ -2573,7 +2572,7 @@ export default function Home() {
                               border="1px solid"
                               borderColor="whiteAlpha.300"
                             >
-                              <Image 
+                              <ChakraImage 
                                 src={image.url} 
                                 alt={`Cloudflare image ${image.id}`}
                                 width="100%"
@@ -2705,7 +2704,7 @@ export default function Home() {
                                   bg="blackAlpha.400"
                                   className="image-card"
                                 >
-                                  <Image 
+                                  <ChakraImage 
                                     src={image.url} 
                                     alt={`Cloudflare image ${image.id}`} 
                                     width="100%" 
