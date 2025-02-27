@@ -54,6 +54,8 @@ import {
   InfoIcon,
 } from "@chakra-ui/icons";
 import HomeTimeline from './components/twitter/HomeTimeline';
+import { useCurrentUser } from './hooks/useCurrentUser';
+import { getAvatarUrl } from './components/twitter/utils/avatarUtils';
 
 // Define Message type for better type safety
 interface Message {
@@ -205,6 +207,9 @@ export default function Home() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [isLoadingImages, setIsLoadingImages] = useState(false);
   const [isLoadingMoreImages, setIsLoadingMoreImages] = useState(false);
+  
+  // Use the useCurrentUser hook to get the user's information
+  const { user, isLoading: isLoadingUser } = useCurrentUser();
 
   // Load chat history from localStorage on component mount
   useEffect(() => {
@@ -1548,20 +1553,43 @@ export default function Home() {
                             {tweetText.length}/280
                           </Badge>
                           <HStack mb={2}>
-                            <Box 
-                              width="40px" 
-                              height="40px" 
-                              borderRadius="full" 
-                              bg="gray.700"
-                              display="flex"
-                              alignItems="center"
-                              justifyContent="center"
-                            >
-                              <Text fontSize="lg" fontWeight="bold">@</Text>
-                            </Box>
+                            {user && !isLoadingUser ? (
+                              <Image 
+                                src={getAvatarUrl(user.profile_image_url, user.username)}
+                                alt={user.name}
+                                width="40px"
+                                height="40px"
+                                borderRadius="full"
+                                fallback={
+                                  <Box 
+                                    width="40px" 
+                                    height="40px" 
+                                    borderRadius="full" 
+                                    bg="gray.700"
+                                    display="flex"
+                                    alignItems="center"
+                                    justifyContent="center"
+                                  >
+                                    <Text fontSize="lg" fontWeight="bold">{user.name.charAt(0)}</Text>
+                                  </Box>
+                                }
+                              />
+                            ) : (
+                              <Box 
+                                width="40px" 
+                                height="40px" 
+                                borderRadius="full" 
+                                bg="gray.700"
+                                display="flex"
+                                alignItems="center"
+                                justifyContent="center"
+                              >
+                                <Text fontSize="lg" fontWeight="bold">@</Text>
+                              </Box>
+                            )}
                             <VStack align="start" spacing={0}>
-                              <Text fontWeight="bold">Your Name</Text>
-                              <Text fontSize="sm" color="whiteAlpha.700">@your_handle</Text>
+                              <Text fontWeight="bold">{user ? user.name : "Your Name"}</Text>
+                              <Text fontSize="sm" color="whiteAlpha.700">@{user ? user.username : "your_handle"}</Text>
                             </VStack>
                           </HStack>
                           
@@ -1722,20 +1750,43 @@ export default function Home() {
                                       {thread.length}/280
                                     </Badge>
                                     <HStack mb={2}>
-                                      <Box 
-                                        width="40px" 
-                                        height="40px" 
-                                        borderRadius="full" 
-                                        bg="gray.700"
-                                        display="flex"
-                                        alignItems="center"
-                                        justifyContent="center"
-                                      >
-                                        <Text fontSize="lg" fontWeight="bold">@</Text>
-                                      </Box>
+                                      {user && !isLoadingUser ? (
+                                        <Image 
+                                          src={getAvatarUrl(user.profile_image_url, user.username)}
+                                          alt={user.name}
+                                          width="40px"
+                                          height="40px"
+                                          borderRadius="full"
+                                          fallback={
+                                            <Box 
+                                              width="40px" 
+                                              height="40px" 
+                                              borderRadius="full" 
+                                              bg="gray.700"
+                                              display="flex"
+                                              alignItems="center"
+                                              justifyContent="center"
+                                            >
+                                              <Text fontSize="lg" fontWeight="bold">{user.name.charAt(0)}</Text>
+                                            </Box>
+                                          }
+                                        />
+                                      ) : (
+                                        <Box 
+                                          width="40px" 
+                                          height="40px" 
+                                          borderRadius="full" 
+                                          bg="gray.700"
+                                          display="flex"
+                                          alignItems="center"
+                                          justifyContent="center"
+                                        >
+                                          <Text fontSize="lg" fontWeight="bold">@</Text>
+                                        </Box>
+                                      )}
                                       <VStack align="start" spacing={0}>
-                                        <Text fontWeight="bold">Your Name</Text>
-                                        <Text fontSize="sm" color="whiteAlpha.700">@your_handle</Text>
+                                        <Text fontWeight="bold">{user ? user.name : "Your Name"}</Text>
+                                        <Text fontSize="sm" color="whiteAlpha.700">@{user ? user.username : "your_handle"}</Text>
                                       </VStack>
                                       
                                       {/* Only show thread tweet control buttons in Thread View tab */}
