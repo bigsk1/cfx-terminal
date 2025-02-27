@@ -107,6 +107,7 @@ class TweetRequest(BaseModel):
     wide_image: bool = False
     userName: Optional[str] = None
     model: Optional[str] = None  # Allow specifying which model to use
+    chat_history: Optional[List[Dict[str, str]]] = None  # Optional chat history for context
 
 class TweetResponse(BaseModel):
     text: str
@@ -141,6 +142,7 @@ class ChatRequest(BaseModel):
     message: str
     userName: Optional[str] = None
     model: Optional[str] = None  # Allow specifying which model to use
+    chat_history: Optional[List[Dict[str, str]]] = None  # Optional chat history for context
 
 class TimelineRequest(BaseModel):
     count: int = 60
@@ -247,20 +249,31 @@ async def craft_tweet(request: TweetRequest):
             system_message += "The user wants to include an image with their tweet. "
             system_message += "Craft a tweet that would pair well with an image described as: " + request.image_prompt
         
+        # Prepare messages array with system prompt
+        messages = [{"role": "system", "content": system_message}]
+        
+        # Add chat history if provided (limited to last 5 messages for context)
+        if request.chat_history and len(request.chat_history) > 0:
+            # Add up to the last 5 messages from history for context
+            history_limit = 5
+            for msg in request.chat_history[-history_limit:]:
+                if "role" in msg and "content" in msg:
+                    messages.append({"role": msg["role"], "content": msg["content"]})
+        
         # Create the user message with the prompt
         user_message = f"Craft a tweet about: {request.prompt}"
         if request.prompt:
             user_message += f"\nPrompt: {request.prompt}"
+        
+        # Add the current user message
+        messages.append({"role": "user", "content": user_message})
         
         # Determine which client to use based on the model
         if model.startswith("grok") and xai_client:
             # Use xAI client
             response = xai_client.chat.completions.create(
                 model=model,
-                messages=[
-                    {"role": "system", "content": system_message},
-                    {"role": "user", "content": user_message}
-                ],
+                messages=messages,
                 max_tokens=1000
             )
             text = response.choices[0].message.content
@@ -268,10 +281,7 @@ async def craft_tweet(request: TweetRequest):
             # Use OpenAI client
             response = openai_client.chat.completions.create(
                 model=model,
-                messages=[
-                    {"role": "system", "content": system_message},
-                    {"role": "user", "content": user_message}
-                ],
+                messages=messages,
                 max_tokens=1000
             )
             text = response.choices[0].message.content
@@ -312,18 +322,36 @@ async def chat(request: ChatRequest):
         client, model = get_client_and_model(request.model)
         
         # Prepare system prompt with personalization if username is provided
-        system_prompt = "You are a helpful assistant specializing in social media management and content creation."
+        system_prompt = """You are a helpful assistant specializing in social media management and content creation.
+        
+When responding, use proper formatting to make your responses easy to read:
+- Use paragraph breaks between different topics or sections
+- Use bullet points or numbered lists when appropriate
+- Format code examples with triple backticks (```)
+- Keep responses concise but informative
+"""
         
         if request.userName:
             system_prompt += f" You are currently assisting {request.userName}."
         
+        # Prepare messages array with system prompt
+        messages = [{"role": "system", "content": system_prompt}]
+        
+        # Add chat history if provided (limited to last 10 messages for context)
+        if request.chat_history and len(request.chat_history) > 0:
+            # Add up to the last 10 messages from history for context
+            history_limit = 10
+            for msg in request.chat_history[-history_limit:]:
+                if "role" in msg and "content" in msg:
+                    messages.append({"role": msg["role"], "content": msg["content"]})
+        
+        # Add the current user message
+        messages.append({"role": "user", "content": request.message})
+        
         # Call AI API
         response = client.chat.completions.create(
             model=model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": request.message}
-            ],
+            messages=messages,
             temperature=0.7,
         )
         
@@ -835,42 +863,53 @@ def parse_tweet_thread(response: str) -> Tuple[str, List[str]]:
     
     # If no thread markers found, check if the text is too long for a single tweet
     if len(response) > 280:
-        # Split by double newlines first
+        # Try to split by double newlines first to preserve paragraph structure
         paragraphs = [p.strip() for p in response.split('\n\n') if p.strip()]
         
         if paragraphs:
-            # Use the first paragraph as the main tweet
+            # Use the first paragraph as the main tweet if it's under the limit
             main_tweet = paragraphs[0]
             
-            # If the main tweet is still too long, truncate it
+            # If the main tweet is too long, use split_into_threads function
             if len(main_tweet) > 280:
-                main_tweet = main_tweet[:277] + "..."
+                all_threads = split_into_threads(response)
+                if all_threads:
+                    return all_threads[0], all_threads[1:]
+                return response[:277] + "...", []
             
-            # Use the rest as thread tweets
-            threads = paragraphs[1:] if len(paragraphs) > 1 else []
+            # Combine remaining paragraphs into threads, being careful not to create too many
+            remaining_text = "\n\n".join(paragraphs[1:]) if len(paragraphs) > 1 else ""
             
-            # Make sure each thread tweet is under 280 characters
-            formatted_threads = []
-            for thread in threads:
-                if len(thread) <= 280:
-                    formatted_threads.append(thread)
-                else:
-                    # Split long threads by sentences
-                    sentences = re.findall(r'[^.!?]+[.!?]+', thread)
-                    current_thread = ""
-                    
-                    for sentence in sentences:
-                        if len(current_thread) + len(sentence) <= 280:
-                            current_thread += sentence
-                        else:
-                            if current_thread:
-                                formatted_threads.append(current_thread.strip())
-                            current_thread = sentence
-                    
+            if not remaining_text:
+                return main_tweet, []
+                
+            # If remaining text is short enough, keep it as a single thread
+            if len(remaining_text) <= 280:
+                return main_tweet, [remaining_text]
+                
+            # Otherwise, use a more conservative approach to split the remaining text
+            # Try to keep paragraphs together when possible
+            threads = []
+            current_thread = ""
+            
+            for para in paragraphs[1:]:
+                # If adding this paragraph would exceed the limit, start a new thread
+                if len(current_thread) + len(para) + 2 > 280:  # +2 for newline chars
                     if current_thread:
-                        formatted_threads.append(current_thread.strip())
+                        threads.append(current_thread.strip())
+                    current_thread = para
+                else:
+                    # Add paragraph to current thread with spacing
+                    if current_thread:
+                        current_thread += "\n\n" + para
+                    else:
+                        current_thread = para
             
-            return main_tweet, formatted_threads
+            # Add the last thread if there's anything left
+            if current_thread:
+                threads.append(current_thread.strip())
+                
+            return main_tweet, threads
     
     # Default case: treat the entire response as a single tweet
     return response.strip(), []

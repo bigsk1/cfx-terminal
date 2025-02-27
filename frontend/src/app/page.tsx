@@ -32,6 +32,9 @@ import {
   MenuButton,
   MenuList,
   MenuItem,
+  UnorderedList,
+  ListItem,
+  OrderedList,
 } from "@chakra-ui/react";
 import {
   AddIcon,
@@ -310,6 +313,12 @@ export default function Home() {
     setIsGeneratingTweet(true);
     
     try {
+      // Prepare chat history for context (last 10 messages)
+      const recentMessages = messages.slice(-10).map(msg => ({
+        role: msg.role,
+        content: msg.content
+      }));
+      
       if (isChatMode) {
         // Call backend for regular chat
         const response = await fetch('/api/chat', {
@@ -321,6 +330,7 @@ export default function Home() {
             message: input,
             userName: userName,
             model: selectedModel,
+            chat_history: recentMessages
           }),
         });
 
@@ -349,6 +359,7 @@ export default function Home() {
             include_image: false,
             userName: userName,
             model: selectedModel,
+            chat_history: recentMessages
           }),
         });
 
@@ -1092,7 +1103,7 @@ export default function Home() {
             p={3}
             bg="blackAlpha.400"
           >
-            <Text fontWeight="medium">{message.tweetData.text}</Text>
+            <Text fontWeight="medium" whiteSpace="pre-wrap" wordBreak="break-word">{message.tweetData.text}</Text>
             <Text fontSize="xs" color="whiteAlpha.700" textAlign="right">
               {message.tweetData.text.length}/280
             </Text>
@@ -1135,7 +1146,87 @@ export default function Home() {
         </VStack>
       );
     } else {
-      return <Text>{message.content}</Text>;
+      // Enhanced formatting for chat mode responses
+      if (isChatMode && message.role === 'assistant') {
+        // Format the content with better spacing and structure
+        const formatChatContent = (content: string) => {
+          // Split by double newlines to identify paragraphs
+          const paragraphs = content.split(/\n\n+/);
+          
+          return (
+            <VStack align="stretch" spacing={3} width="100%">
+              {paragraphs.map((paragraph, idx) => {
+                // Check if paragraph is a code block
+                if (paragraph.trim().startsWith('```') && paragraph.trim().endsWith('```')) {
+                  const codeContent = paragraph.trim().replace(/^```(\w+)?\n/, '').replace(/```$/, '');
+                  return (
+                    <Box 
+                      key={idx}
+                      bg="blackAlpha.500" 
+                      p={2} 
+                      borderRadius="md" 
+                      fontFamily="monospace"
+                      overflowX="auto"
+                      whiteSpace="pre"
+                      fontSize="sm"
+                    >
+                      {codeContent}
+                    </Box>
+                  );
+                }
+                
+                // Check if paragraph is a list
+                else if (paragraph.match(/^[\s]*[-*•]\s/m)) {
+                  const listItems = paragraph.split(/\n/).filter(item => item.trim());
+                  return (
+                    <UnorderedList key={idx} pl={4} spacing={1}>
+                      {listItems.map((item, itemIdx) => (
+                        <ListItem key={itemIdx}>
+                          {item.replace(/^[\s]*[-*•]\s/, '')}
+                        </ListItem>
+                      ))}
+                    </UnorderedList>
+                  );
+                }
+                
+                // Check if paragraph is a numbered list
+                else if (paragraph.match(/^[\s]*\d+\.\s/m)) {
+                  const listItems = paragraph.split(/\n/).filter(item => item.trim());
+                  return (
+                    <OrderedList key={idx} pl={4} spacing={1}>
+                      {listItems.map((item, itemIdx) => (
+                        <ListItem key={itemIdx}>
+                          {item.replace(/^[\s]*\d+\.\s/, '')}
+                        </ListItem>
+                      ))}
+                    </OrderedList>
+                  );
+                }
+                
+                // Handle regular paragraphs with line breaks
+                else {
+                  const lines = paragraph.split('\n');
+                  return (
+                    <Text key={idx}>
+                      {lines.map((line, lineIdx) => (
+                        <React.Fragment key={lineIdx}>
+                          {line}
+                          {lineIdx < lines.length - 1 && <br />}
+                        </React.Fragment>
+                      ))}
+                    </Text>
+                  );
+                }
+              })}
+            </VStack>
+          );
+        };
+        
+        return formatChatContent(message.content);
+      } else {
+        // Regular text display for non-chat mode or user messages
+        return <Text>{message.content}</Text>;
+      }
     }
   };
 
@@ -1215,6 +1306,14 @@ export default function Home() {
                       onChange={(e) => setIsChatMode(e.target.checked)}
                     />
                   </FormControl>
+                  
+                  <Badge 
+                    colorScheme={isChatMode ? "purple" : "gray"} 
+                    variant="solid"
+                    fontSize="xs"
+                  >
+                    {isChatMode ? "Chat" : "Tweet"}
+                  </Badge>
                   
                   <Menu>
                     <MenuButton as={Button} size="xs" rightIcon={<ChevronDownIcon />}>
@@ -1311,7 +1410,7 @@ export default function Home() {
                 <Input
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
-                  placeholder={isChatMode ? "Chat with AI..." : "Describe your tweet idea..."}
+                  placeholder={isChatMode ? "Chat with AI assistant (maintains conversation context)..." : "Describe your tweet idea..."}
                   bg="whiteAlpha.100"
                   border="1px solid"
                   borderColor="whiteAlpha.300"
@@ -1697,9 +1796,11 @@ export default function Home() {
                           size="sm"
                           resize="vertical"
                           minH="80px"
+                          whiteSpace="pre-wrap"
+                          wordBreak="break-word"
                         />
                         
-                        <Text fontSize="xs" textAlign="right" mt={1}>
+                        <Text fontSize="xs" textAlign="right" mt={1} color={tweetText.length > 280 ? "red.500" : "whiteAlpha.700"}>
                           {tweetText.length}/280
                         </Text>
                         
@@ -1818,9 +1919,11 @@ export default function Home() {
                                 size="sm"
                                 resize="vertical"
                                 minH="80px"
+                                whiteSpace="pre-wrap"
+                                wordBreak="break-word"
                               />
                               
-                              <Text fontSize="xs" textAlign="right" mt={1}>
+                              <Text fontSize="xs" textAlign="right" mt={1} color={thread.length > 280 ? "red.500" : "whiteAlpha.700"}>
                                 {thread.length}/280
                               </Text>
                               
