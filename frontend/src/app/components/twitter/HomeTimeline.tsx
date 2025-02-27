@@ -57,7 +57,7 @@ const HomeTimeline: React.FC<HomeTimelineProps> = ({ onClose, isVisible = true }
       setCacheInfo(null);
 
       // Build the URL with query parameters
-      let url = '/api/twitter/home-timeline?count=20';
+      let url = '/api/twitter/home-timeline?count=60';
       if (cursor) {
         url += `&cursor=${cursor}`;
       }

@@ -143,7 +143,7 @@ class ChatRequest(BaseModel):
     model: Optional[str] = None  # Allow specifying which model to use
 
 class TimelineRequest(BaseModel):
-    count: int = 20
+    count: int = 60
     include_replies: bool = True
     include_retweets: bool = True
     cursor: Optional[str] = None
@@ -197,7 +197,7 @@ async def get_model_info():
         available_models = [OPENAI_TEXT_MODEL]
         
         # Add other common OpenAI models if different from the default
-        common_openai_models = ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"]
+        common_openai_models = ["gpt-4o", "gpt-4o-mini"]
         for model in common_openai_models:
             if model != OPENAI_TEXT_MODEL and model not in available_models:
                 available_models.append(model)

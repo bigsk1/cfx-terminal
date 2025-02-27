@@ -71,7 +71,7 @@ button[aria-label="Remove"]:hover {
 
 /* Responsive Cloudflare gallery layout */
 /* Mobile: 1 column */
-@media (max-width: 768px) {
+@media (max-width: 1300px) {
   .cloudflare-gallery {
     grid-template-columns: 1fr !important;
   }
@@ -126,7 +126,7 @@ button[aria-label="Remove"]:hover {
 }
 
 /* Mobile responsiveness */
-@media (max-width: 768px) {
+@media (max-width: 1300px) {
   .mobile-stack {
     flex-direction: column !important;
   }
