@@ -17,14 +17,9 @@ to your cloudflare images gallery.
 - **Tweet Management**: View and delete your posted tweets
 
 
-![Timeline](frontend/public/images/timeline.png)
+https://github.com/user-attachments/assets/4c0d99ee-2335-4c10-b7be-3563b2d5caf5
 
----
 
-![Preview](frontend/public/images/tweet-preview.png)
----
-
-![Thread](frontend/public/images/thread.png)
 
 ## Tech Stack
 
@@ -60,6 +55,15 @@ To configure Cloudflare integration:
 2. Generate an API token with Images Write permissions
 3. Add your Account ID and API token to the `.env` file
 
+![Timeline](frontend/public/images/timeline.png)
+---
+
+![Preview](frontend/public/images/tweet-preview.png)
+---
+
+![Thread](frontend/public/images/thread.png)
+
+---
 ![Gallery](frontend/public/images/gallery.png)
 
 ## Getting Started
